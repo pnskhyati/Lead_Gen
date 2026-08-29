@@ -1,6 +1,17 @@
 
 
-export type View = 'insights' | 'campaigns' | 'lab' | 'automation' | 'chat' | 'bridal';
+export type View = 'insights' | 'campaigns' | 'lab' | 'automation' | 'chat' | 'linkedin';
+
+/** Draft posts handed from Creative Lab / Campaigns into LinkedIn Hub */
+export interface LinkedInDraft {
+  headline: string;
+  content: string;
+  hashtags?: string[];
+  imageUrl?: string;
+  imagePrompt?: string;
+  scheduledAt?: string;
+  source?: 'manual' | 'ai-generated';
+}
 
 export interface CampaignDetails {
   product: string;
@@ -50,6 +61,8 @@ export interface Recipe {
   ingredients: string[];
 }
 
+export type LeadTemperature = 'hot' | 'warm' | 'cold';
+
 export interface SocialResponse {
   suggestedReply: string;
   productRecommendation: {
@@ -57,13 +70,35 @@ export interface SocialResponse {
     reasoning: string;
     productImagePrompt: string;
     recipes: Recipe[];
-  }
+  };
+  /** Purchase / conversion intent for lead gen */
+  leadTemperature: LeadTemperature;
+  leadScore: number;
+  intentSummary: string;
+}
+
+export interface Lead {
+  id: string;
+  platform: string;
+  customerComment: string;
+  temperature: LeadTemperature;
+  score: number;
+  intentSummary: string;
+  recommendedProduct?: string;
+  suggestedReply?: string;
+  status: 'new' | 'contacted' | 'qualified' | 'closed';
+  createdAt: string;
+  externalId?: string;
+  source?: 'manual' | 'instagram' | string;
+  author?: string;
+  mediaPermalink?: string;
 }
 
 // Type for Product Showcase
 export interface ProductShowcase {
   description: string;
   imagePrompt: string;
+  imageUrl?: string | null;
 }
 
 // Types for AI Campaign Planner

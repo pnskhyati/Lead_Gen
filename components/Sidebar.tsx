@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { View } from '../types';
 
 interface SidebarProps {
@@ -6,87 +6,129 @@ interface SidebarProps {
   setCurrentView: (view: View) => void;
 }
 
-const NavItem: React.FC<{
-  view: View;
-  label: string;
-  icon: React.ReactNode;
-  currentView: View;
-  setCurrentView: (view: View) => void;
-}> = ({ view, label, icon, currentView, setCurrentView }) => {
-  const isActive = currentView === view;
-  return (
-    <button
-      onClick={() => setCurrentView(view)}
-      className={`flex items-center w-full px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200 group relative ${
-        isActive
-          ? 'text-slate-900 dark:text-white bg-brand-blue/20'
-          : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-      }`}
-    >
-      <div className={`
-        absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 bg-brand-blue rounded-r-full transition-opacity duration-300
-        ${isActive ? 'opacity-100 shadow-[0_0_10px_theme(colors.brand-blue)]' : 'opacity-0'}
-      `}></div>
-      <div className={`mr-4 transition-colors duration-200 ${isActive ? 'text-brand-blue' : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-500 dark:group-hover:text-slate-300'}`}>
-        {icon}
-      </div>
-      <span>{label}</span>
-    </button>
-  );
-};
+const NAV: { view: View; label: string; icon: React.ReactNode; tint: string }[] = [
+  {
+    view: 'insights',
+    label: 'Insights',
+    tint: 'bg-soft-sky text-soft-azure',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13h4v8H3v-8zm7-6h4v14h-4V7zm7 3h4v11h-4V10z" />
+      </svg>
+    ),
+  },
+  {
+    view: 'campaigns',
+    label: 'Campaigns',
+    tint: 'bg-soft-mint text-soft-deep',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+      </svg>
+    ),
+  },
+  {
+    view: 'lab',
+    label: 'Creative Lab',
+    tint: 'bg-soft-lavender text-soft-lilac',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364l-1.414 1.414M7.05 16.95l-1.414 1.414m12.728 0l-1.414-1.414M7.05 7.05L5.636 5.636M12 8a4 4 0 100 8 4 4 0 000-8z" />
+      </svg>
+    ),
+  },
+  {
+    view: 'linkedin',
+    label: 'Social Hub',
+    tint: 'bg-soft-foam text-soft-azure',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.238 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z" />
+      </svg>
+    ),
+  },
+  {
+    view: 'automation',
+    label: 'Leads',
+    tint: 'bg-soft-peach text-soft-deep',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      </svg>
+    ),
+  },
+  {
+    view: 'chat',
+    label: 'AI Assistant',
+    tint: 'bg-soft-sky text-soft-azure',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+      </svg>
+    ),
+  },
+];
 
 const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView }) => {
+  const [expanded, setExpanded] = useState(false);
+
   return (
-    <aside className="w-64 flex-shrink-0 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl border-r border-slate-200/50 dark:border-slate-800/50 p-4 flex flex-col">
-      <div className="flex items-center h-16 flex-shrink-0 px-2">
-        <span className="font-bold text-2xl text-slate-900 dark:text-white tracking-wide">
-          Nexora
-        </span>
+    <aside
+      className={`
+        hidden sm:flex flex-shrink-0 flex-col items-stretch py-6 pl-3 pr-2 z-40
+        transition-[width] duration-300 ease-out
+        ${expanded ? 'w-[220px]' : 'w-[92px]'}
+      `}
+      onMouseEnter={() => setExpanded(true)}
+      onMouseLeave={() => setExpanded(false)}
+    >
+      <div className="h-full flex flex-col bg-white/75 backdrop-blur-2xl border border-soft-sky/50 shadow-soft rounded-[2rem] py-5 px-3 overflow-visible">
+        <div className={`mb-8 flex items-center gap-3 ${expanded ? 'px-1' : 'justify-center'}`}>
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-soft-deep via-soft-azure to-soft-lilac text-white flex items-center justify-center font-extrabold text-lg shadow-aqua flex-shrink-0">
+            N
+          </div>
+          <span
+            className={`font-display font-semibold text-ink text-2xl tracking-tight whitespace-nowrap transition-all duration-300 ${
+              expanded ? 'opacity-100 max-w-[120px]' : 'opacity-0 max-w-0 overflow-hidden'
+            }`}
+          >
+            Nexora
+          </span>
+        </div>
+
+        <nav className="flex-1 w-full flex flex-col gap-2">
+          {NAV.map((item) => {
+            const active = currentView === item.view;
+            return (
+              <button
+                key={item.view}
+                type="button"
+                aria-label={item.label}
+                aria-current={active ? 'page' : undefined}
+                onClick={() => setCurrentView(item.view)}
+                className={`
+                  flex items-center gap-3 h-12 rounded-2xl transition-all duration-200
+                  ${expanded ? 'px-3 w-full justify-start' : 'w-12 mx-auto justify-center px-0'}
+                  ${active
+                    ? 'bg-gradient-to-br from-soft-deep to-soft-azure text-white shadow-aqua'
+                    : `${item.tint} hover:brightness-95 hover:shadow-soft hover:-translate-y-0.5`}
+                `}
+              >
+                <span className="flex-shrink-0 flex items-center justify-center w-5 h-5">
+                  {item.icon}
+                </span>
+                <span
+                  className={`text-sm font-semibold whitespace-nowrap transition-all duration-300 ${
+                    expanded ? 'opacity-100 max-w-[140px]' : 'opacity-0 max-w-0 overflow-hidden'
+                  } ${active ? 'text-white' : 'text-ink'}`}
+                >
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
       </div>
-      <nav className="mt-8 space-y-2">
-        <NavItem 
-          view="insights" 
-          label="Insights" 
-          icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" /></svg>}
-          currentView={currentView} 
-          setCurrentView={setCurrentView} 
-        />
-        <NavItem 
-          view="campaigns" 
-          label="Campaigns" 
-          icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414L8.586 11l-1.293 1.293a1 1 0 101.414 1.414L10 12.414l1.293 1.293a1 1 0 001.414-1.414L11.414 11l1.293-1.293z" clipRule="evenodd" /></svg>}
-          currentView={currentView} 
-          setCurrentView={setCurrentView} 
-        />
-        <NavItem 
-          view="lab" 
-          label="Creative Lab" 
-          icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 2a1 1 0 00-1 1v1H3a1 1 0 000 2h1v1a1 1 0 001 1h3a1 1 0 001-1V6h1a1 1 0 100-2h-1V3a1 1 0 00-1-1H5zM3 14a1 1 0 011-1h1v-1a1 1 0 112 0v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1H4a1 1 0 01-1-1zm5-1a1 1 0 000 2h3a1 1 0 000-2H8zm6-7a1 1 0 011-1h1V5a1 1 0 112 0v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0V8h-1a1 1 0 01-1-1z" clipRule="evenodd" /></svg>}
-          currentView={currentView} 
-          setCurrentView={setCurrentView} 
-        />
-        <NavItem 
-          view="automation" 
-          label="Automation" 
-          icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 3.5a1.5 1.5 0 013 0V5a1 1 0 001 1h1.5a1.5 1.5 0 010 3H14a1 1 0 00-1 1v1.5a1.5 1.5 0 01-3 0V10a1 1 0 00-1-1H7.5a1.5 1.5 0 010-3H9a1 1 0 001-1V3.5zM7.5 11H9a1 1 0 001 1v1.5a1.5 1.5 0 01-3 0V12a1 1 0 00-1-1H3.5a1.5 1.5 0 010-3H5a1 1 0 001-1V6.5a1.5 1.5 0 013 0V8a1 1 0 001 1h1.5a1.5 1.5 0 010 3H12a1 1 0 00-1 1v1.5a1.5 1.5 0 01-3 0V14a1 1 0 00-1-1H5.5a1.5 1.5 0 010-3H7a1 1 0 001-1V8.5a1.5 1.5 0 01-3 0V10a1 1 0 00-1 1H1.5a1.5 1.5 0 010 3H3a1 1 0 001 1v1.5a1.5 1.5 0 01-3 0V16a1 1 0 00-1-1H.5a1.5 1.5 0 010-3H2a1 1 0 001-1v-1.5a1.5 1.5 0 013 0v.005z"></path></svg>}
-          currentView={currentView} 
-          setCurrentView={setCurrentView} 
-        />
-        <NavItem 
-          view="chat" 
-          label="AI Assistant" 
-          icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.08-3.239A8.962 8.962 0 012 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM4.707 14.707a1 1 0 001.414 0L10 10.414l3.879 3.879a1 1 0 001.414-1.414L11.414 9l3.879-3.879a1 1 0 00-1.414-1.414L10 7.586 6.121 3.707a1 1 0 00-1.414 1.414L8.586 9 4.707 12.707a1 1 0 000 1.414z" clipRule="evenodd" /></svg>}
-          currentView={currentView} 
-          setCurrentView={setCurrentView} 
-        />
-         <NavItem 
-          view="bridal" 
-          label="Bridal Assistant" 
-          icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 5a1 1 0 000 2h6a1 1 0 100-2H7zM10 15a4.472 4.472 0 004.243-3.228 1 1 0 10-1.833-.805A2.472 2.472 0 0110 13a2.472 2.472 0 01-2.41-2.033 1 1 0 10-1.833.805A4.472 4.472 0 0010 15z" clipRule="evenodd" /></svg>}
-          currentView={currentView} 
-          setCurrentView={setCurrentView} 
-        />
-      </nav>
     </aside>
   );
 };

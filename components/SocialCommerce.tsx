@@ -1,9 +1,12 @@
 import React, { useState, useCallback } from 'react';
 import { SOCIAL_PLATFORMS } from '../constants';
-import type { SocialInteraction, SocialResponse } from '../types';
+import type { SocialInteraction, SocialResponse, Lead } from '../types';
 import { generateSocialReply, generateImage } from '../services/geminiService';
+import { addLeadFromInteraction } from '../services/leadStore';
 import Spinner from './common/Spinner';
 import Card from './common/Card';
+import LeadBadge from './common/LeadBadge';
+import InstagramConnect from './InstagramConnect';
 
 const Label: React.FC<{ htmlFor: string; children: React.ReactNode }> = ({ htmlFor, children }) => (
     <label htmlFor={htmlFor} className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{children}</label>
@@ -14,7 +17,7 @@ const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement> & { options
         id={id}
         value={value}
         onChange={onChange}
-        className="w-full bg-white/50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue transition-colors"
+        className="w-full bg-soft-bg border border-transparent rounded-2xl py-2.5 px-4 text-ink focus:outline-none focus:ring-4 focus:ring-soft-sky/60 focus:bg-white transition-all"
     >
         {options.map(option => <option key={option} value={option}>{option}</option>)}
     </select>
@@ -23,7 +26,7 @@ const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement> & { options
 const TextArea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement>> = (props) => (
     <textarea
         {...props}
-        className="w-full bg-white/50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue transition-colors"
+        className="w-full bg-soft-bg border border-transparent rounded-2xl py-2.5 px-4 text-ink focus:outline-none focus:ring-4 focus:ring-soft-sky/60 focus:bg-white transition-all"
     />
 );
 
@@ -34,6 +37,7 @@ const SocialCommerce: React.FC = () => {
         customerComment: `Just saw the new Johnnie Walker ad, looks amazing! I'm looking for a smooth whisky for a weekend get-together, any suggestions?`,
     });
     const [generatedResponse, setGeneratedResponse] = useState<SocialResponse | null>(null);
+    const [capturedLead, setCapturedLead] = useState<Lead | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [productImageUrl, setProductImageUrl] = useState<string | null>(null);
@@ -49,12 +53,15 @@ const SocialCommerce: React.FC = () => {
         setIsLoading(true);
         setError(null);
         setGeneratedResponse(null);
+        setCapturedLead(null);
         setProductImageUrl(null);
         setIsGeneratingImage(false);
 
         try {
             const response = await generateSocialReply(details);
             setGeneratedResponse(response);
+            const lead = addLeadFromInteraction(details, response);
+            setCapturedLead(lead);
              if (response?.productRecommendation?.productImagePrompt) {
                 setIsGeneratingImage(true);
                 try {
@@ -77,8 +84,11 @@ const SocialCommerce: React.FC = () => {
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fade-in">
             <div>
-                <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-1">Automation Engine</h1>
-                <p className="text-slate-500 dark:text-slate-400 mb-6">Turn social interactions into sales opportunities with AI.</p>
+                <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-1">Lead Automation</h1>
+                <p className="text-slate-500 dark:text-slate-400 mb-6">Score Instagram comments (Graph API) or paste a message as Hot / Warm / Cold.</p>
+                <div className="mb-5">
+                    <InstagramConnect />
+                </div>
                 <Card>
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div>
@@ -89,8 +99,8 @@ const SocialCommerce: React.FC = () => {
                             <Label htmlFor="customerComment">Customer Comment / DM</Label>
                             <TextArea id="customerComment" value={details.customerComment} onChange={handleInputChange} rows={5} placeholder="Paste customer's message here..." />
                         </div>
-                        <button type="submit" disabled={isLoading} className="w-full bg-brand-blue text-white font-bold py-3 px-4 rounded-md hover:bg-brand-blue/80 transition-all duration-300 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed flex items-center justify-center shadow-lg shadow-brand-blue/30 hover:shadow-brand-blue/40 hover:-translate-y-0.5 disabled:transform-none disabled:shadow-none">
-                            {isLoading ? <Spinner /> : '💬 Generate Reply & Recommendation'}
+                        <button type="submit" disabled={isLoading} className="nexora-btn-primary w-full py-3.5 px-4 text-sm flex items-center justify-center gap-2">
+                            {isLoading ? <Spinner /> : 'Score lead & generate reply'}
                         </button>
                     </form>
                 </Card>
@@ -101,12 +111,24 @@ const SocialCommerce: React.FC = () => {
                 {isLoading && (
                     <Card className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400">
                         <Spinner />
-                        <p className="mt-2">Analyzing comment and crafting reply...</p>
+                        <p className="mt-2">Scoring lead intent and crafting reply...</p>
                     </Card>
                 )}
                 {error && <div className="text-red-500 dark:text-red-400 bg-red-500/10 dark:bg-red-900/50 p-4 rounded-md">{error}</div>}
                 {generatedResponse && !isLoading && (
                     <div className="space-y-6 animate-fade-in">
+                        {capturedLead && (
+                            <Card className="!p-4 bg-soft-bg/80">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Lead captured</p>
+                                        <p className="text-sm text-ink mt-1">{capturedLead.intentSummary}</p>
+                                    </div>
+                                    <LeadBadge temperature={capturedLead.temperature} score={capturedLead.score} />
+                                </div>
+                                <p className="text-xs text-ink-muted mt-3">Visible on Insights dashboard · {capturedLead.platform}</p>
+                            </Card>
+                        )}
                         <div>
                             <h3 className="text-lg font-semibold text-brand-blue mb-3">Suggested Reply</h3>
                             <Card>
@@ -166,7 +188,7 @@ const SocialCommerce: React.FC = () => {
                 )}
                  {!generatedResponse && !isLoading && !error && (
                     <Card className="flex items-center justify-center h-full text-slate-400 dark:text-slate-500">
-                        <p>Your AI-generated reply will appear here.</p>
+                        <p>Lead score and AI reply will appear here.</p>
                     </Card>
                  )}
             </div>

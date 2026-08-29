@@ -1,22 +1,29 @@
 {
-  "name": "nexora:-genai-digital-commerce-assistant",
+  "name": "nexora",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n web,api -c cyan,magenta \"npm run dev:web\" \"npm run dev:api\"",
+    "dev:web": "vite",
+    "dev:api": "npm run start --prefix backend",
+    "install:all": "npm install && npm install --prefix backend",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start:api": "npm run start --prefix backend"
   },
   "dependencies": {
+    "@google/genai": "^1.27.0",
+    "@google/generative-ai": "^0.24.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "@google/genai": "^1.27.0",
-    "recharts": "^2.12.0"
+    "recharts": "^2.12.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.4",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

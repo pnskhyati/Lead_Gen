@@ -1,9 +1,13 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { CAMPAIGN_GOALS, BRAND_PRODUCTS_BY_CATEGORY, PLATFORMS, TONES_OF_VOICE, AUDIENCE_SUGGESTIONS } from '../constants';
-import type { CampaignDetails, GeneratedContent } from '../types';
+import type { CampaignDetails, GeneratedContent, LinkedInDraft } from '../types';
 import { generateContentIdeas, generateImage, generatePromoVideo, generateProductShowcase } from '../services/geminiService';
 import Spinner from './common/Spinner';
 import Card from './common/Card';
+
+interface ContentStudioProps {
+    openLinkedInHub?: (drafts?: LinkedInDraft[], brief?: string) => void;
+}
 
 const Label: React.FC<{ htmlFor?: string; children: React.ReactNode }> = ({ htmlFor, children }) => (
     <label htmlFor={htmlFor} className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{children}</label>
@@ -12,7 +16,7 @@ const Label: React.FC<{ htmlFor?: string; children: React.ReactNode }> = ({ html
 const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = (props) => (
     <select
         {...props}
-        className="w-full bg-white/50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue transition-colors"
+        className="w-full bg-soft-bg border border-transparent rounded-2xl py-2.5 px-4 text-ink focus:outline-none focus:ring-4 focus:ring-soft-sky/60 focus:bg-white transition-all"
     >
         {props.children}
     </select>
@@ -21,12 +25,12 @@ const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = (props) 
 const TextArea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement>> = (props) => (
     <textarea
         {...props}
-        className="w-full bg-white/50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue transition-colors"
+        className="w-full bg-soft-bg border border-transparent rounded-2xl py-2.5 px-4 text-ink focus:outline-none focus:ring-4 focus:ring-soft-sky/60 focus:bg-white transition-all"
     />
 );
 
 
-const ContentStudio: React.FC = () => {
+const ContentStudio: React.FC<ContentStudioProps> = ({ openLinkedInHub }) => {
     const [selectedSector, setSelectedSector] = useState<string>(BRAND_PRODUCTS_BY_CATEGORY[0].category);
     const [details, setDetails] = useState<CampaignDetails>({
         product: BRAND_PRODUCTS_BY_CATEGORY[0].products[0],
@@ -54,29 +58,48 @@ const ContentStudio: React.FC = () => {
     const [productShowcaseError, setProductShowcaseError] = useState<string | null>(null);
 
     useEffect(() => {
+        if (!details.product) return;
+
+        const controller = new AbortController();
+        let cancelled = false;
+
         const fetchProductShowcase = async () => {
-            if (!details.product) return;
-    
             setIsProductShowcaseLoading(true);
             setProductShowcaseError(null);
             setProductShowcaseDesc(null);
             setProductShowcaseImg(null);
-    
+
             try {
                 const showcaseData = await generateProductShowcase(details.product);
+                if (cancelled) return;
+
                 setProductShowcaseDesc(showcaseData.description);
-                
-                const imageUrl = await generateImage(showcaseData.imagePrompt);
-                setProductShowcaseImg(imageUrl);
+
+                if (showcaseData.imageUrl) {
+                    setProductShowcaseImg(showcaseData.imageUrl);
+                } else if (showcaseData.imagePrompt) {
+                    try {
+                        const imageUrl = await generateImage(showcaseData.imagePrompt);
+                        if (!cancelled) setProductShowcaseImg(imageUrl);
+                    } catch (imageErr) {
+                        console.error("Product showcase image failed:", imageErr);
+                        // Keep description; preview still useful without image
+                    }
+                }
             } catch (err) {
+                if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) return;
                 console.error("Failed to fetch product showcase:", err);
                 setProductShowcaseError("Could not load product preview.");
             } finally {
-                setIsProductShowcaseLoading(false);
+                if (!cancelled) setIsProductShowcaseLoading(false);
             }
         };
-    
+
         fetchProductShowcase();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, [details.product]);
 
     const handleSectorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -216,6 +239,36 @@ const ContentStudio: React.FC = () => {
         
         window.open(shareUrl, '_blank', 'noopener,noreferrer');
     };
+
+    const handleScheduleOnLinkedIn = () => {
+        if (!generatedContent?.captions?.length || !openLinkedInHub) return;
+
+        const selectedImage =
+            (videoBaseImageIndex !== null && generatedImages[videoBaseImageIndex]) ||
+            generatedImages.find(Boolean) ||
+            undefined;
+        const selectedPrompt =
+            (videoBaseImageIndex !== null && generatedContent.imagePrompts[videoBaseImageIndex]) ||
+            generatedContent.imagePrompts[0] ||
+            '';
+
+        const drafts: LinkedInDraft[] = generatedContent.captions.map((caption, i) => {
+            const lines = caption.split('\n').map(l => l.trim()).filter(Boolean);
+            const headline = lines[0]?.slice(0, 120) || `LinkedIn Post ${i + 1}`;
+            const content = lines.length > 1 ? lines.slice(1).join('\n\n') : caption;
+            const hashtagMatches = caption.match(/#[\w]+/g) || [];
+            return {
+                headline,
+                content,
+                hashtags: hashtagMatches.map(t => t.replace(/^#/, '')),
+                imageUrl: selectedImage || undefined,
+                imagePrompt: selectedPrompt,
+                source: 'ai-generated' as const,
+            };
+        });
+
+        openLinkedInHub(drafts);
+    };
     
     interface ImagePromptCardProps {
         prompt: string;
@@ -316,10 +369,14 @@ const ContentStudio: React.FC = () => {
                                 <p>{productShowcaseError}</p>
                             </div>
                         )}
-                        {productShowcaseDesc && productShowcaseImg && !isProductShowcaseLoading && (
+                        {productShowcaseDesc && !isProductShowcaseLoading && (
                             <div className="grid grid-cols-3 gap-4 items-center animate-fade-in p-4 bg-slate-100 dark:bg-slate-800/60 rounded-lg">
                                 <div className="col-span-1 h-32 flex items-center justify-center">
-                                    <img src={productShowcaseImg} alt={details.product} className="max-h-full max-w-full object-contain" />
+                                    {productShowcaseImg ? (
+                                        <img src={productShowcaseImg} alt={details.product} className="max-h-full max-w-full object-contain" />
+                                    ) : (
+                                        <p className="text-xs text-slate-400 text-center px-2">Preview image unavailable</p>
+                                    )}
                                 </div>
                                 <div className="col-span-2">
                                     <p className="text-slate-600 dark:text-slate-300 text-sm">{productShowcaseDesc}</p>
@@ -349,7 +406,7 @@ const ContentStudio: React.FC = () => {
                             <Label htmlFor="audience">Target Audience</Label>
                             <TextArea id="audience" value={details.audience} onChange={handleInputChange} rows={3} />
                         </div>
-                        <button type="submit" disabled={isLoading} className="w-full bg-brand-blue text-white font-bold py-3 px-4 rounded-md hover:bg-brand-blue/80 transition-all duration-300 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed flex items-center justify-center shadow-lg shadow-brand-blue/30 hover:shadow-brand-blue/40 hover:-translate-y-0.5 disabled:transform-none disabled:shadow-none">
+                        <button type="submit" disabled={isLoading} className="nexora-btn-primary w-full py-3.5 px-4 text-sm flex items-center justify-center gap-2">
                             {isLoading ? <Spinner /> : 'Generate Content'}
                         </button>
                     </form>
@@ -387,17 +444,28 @@ const ContentStudio: React.FC = () => {
                                     </div>
                                 ))}
                             </div>
-                            <div className="mt-4">
-                                <button
-                                    onClick={handleShare}
-                                    disabled={!generatedContent?.captions?.length}
-                                    className="w-full bg-transparent text-brand-blue font-bold py-2 px-4 rounded-md border border-brand-blue/50 hover:border-brand-blue hover:bg-brand-blue/10 transition-colors duration-200 disabled:border-slate-300 dark:disabled:border-slate-700 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                    </svg>
-                                    Share to {details.platform}
-                                </button>
+                            <div className="mt-4 space-y-2">
+                                {details.platform === 'LinkedIn Post' && openLinkedInHub ? (
+                                    <button
+                                        onClick={handleScheduleOnLinkedIn}
+                                        disabled={!generatedContent?.captions?.length}
+                                        className="w-full bg-blue-600 text-white font-bold py-2.5 px-4 rounded-md hover:bg-blue-700 transition-colors duration-200 disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.238 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z" /></svg>
+                                        Schedule on LinkedIn
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={handleShare}
+                                        disabled={!generatedContent?.captions?.length}
+                                        className="w-full bg-transparent text-brand-blue font-bold py-2 px-4 rounded-md border border-brand-blue/50 hover:border-brand-blue hover:bg-brand-blue/10 transition-colors duration-200 disabled:border-slate-300 dark:disabled:border-slate-700 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                        </svg>
+                                        Share to {details.platform}
+                                    </button>
+                                )}
                             </div>
                         </div>
                         <div>

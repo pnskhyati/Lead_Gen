@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import Card from './common/Card';
 import Spinner from './common/Spinner';
 import { generateCampaignPlan } from '../services/geminiService';
-import type { CampaignPlan } from '../types';
+import type { CampaignPlan, LinkedInDraft } from '../types';
+
+interface CampaignsProps {
+    openLinkedInHub?: (drafts?: LinkedInDraft[], brief?: string) => void;
+}
 
 const SectionCard: React.FC<{ title: string; icon: React.ReactNode; children: React.ReactNode }> = ({ title, icon, children }) => (
     <Card className="hover:!border-brand-violet/30 dark:hover:!border-brand-violet/60">
@@ -16,7 +20,7 @@ const SectionCard: React.FC<{ title: string; icon: React.ReactNode; children: Re
     </Card>
 );
 
-const Campaigns: React.FC = () => {
+const Campaigns: React.FC<CampaignsProps> = ({ openLinkedInHub }) => {
     const [brief, setBrief] = useState("Launch Talisker whisky to a younger, adventurous audience interested in outdoor activities and authentic experiences.");
     const [campaignPlan, setCampaignPlan] = useState<CampaignPlan | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -40,6 +44,43 @@ const Campaigns: React.FC = () => {
         }
     };
 
+    const handlePushToLinkedIn = () => {
+        if (!campaignPlan || !openLinkedInHub) return;
+
+        const linkedInIdeas: string[] = [];
+        campaignPlan.rolloutPlan.forEach(phase => {
+            phase.platforms.forEach(p => {
+                if (/linkedin/i.test(p.platform)) {
+                    p.contentIdeas.forEach(idea => linkedInIdeas.push(idea));
+                }
+            });
+        });
+
+        const topicsBlock = linkedInIdeas.length
+            ? `\n\nLinkedIn content ideas from rollout:\n${linkedInIdeas.map((t, i) => `${i + 1}. ${t}`).join('\n')}`
+            : '';
+
+        const hubBrief = [
+            `Campaign: ${campaignPlan.campaignTitle}`,
+            `Slogan: ${campaignPlan.slogan}`,
+            `Original brief: ${brief}`,
+            topicsBlock,
+        ].filter(Boolean).join('\n');
+
+        if (linkedInIdeas.length > 0) {
+            const drafts: LinkedInDraft[] = linkedInIdeas.map((idea, i) => ({
+                headline: idea.slice(0, 120),
+                content: idea,
+                hashtags: [],
+                imagePrompt: `Professional LinkedIn infographic about: ${idea}`,
+                source: 'manual' as const,
+            }));
+            openLinkedInHub(drafts, hubBrief);
+        } else {
+            openLinkedInHub(undefined, hubBrief);
+        }
+    };
+
     return (
         <div className="animate-fade-in space-y-8">
             <div>
@@ -57,10 +98,10 @@ const Campaigns: React.FC = () => {
                             onChange={(e) => setBrief(e.target.value)}
                             rows={3}
                             placeholder="e.g., Launch a new flavor of Smirnoff for summer music festivals..."
-                            className="w-full bg-white/50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue transition-colors"
+                            className="w-full bg-soft-bg border border-transparent rounded-2xl py-2.5 px-4 text-ink focus:outline-none focus:ring-4 focus:ring-soft-sky/60 focus:bg-white transition-all"
                         />
                     </div>
-                    <button type="submit" disabled={isLoading} className="w-full bg-brand-blue text-white font-bold py-3 px-4 rounded-md hover:bg-brand-blue/80 transition-all duration-300 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed flex items-center justify-center shadow-lg shadow-brand-blue/30 hover:shadow-brand-blue/40 hover:-translate-y-0.5 disabled:transform-none disabled:shadow-none">
+                    <button type="submit" disabled={isLoading} className="nexora-btn-primary w-full py-3.5 px-4 text-sm flex items-center justify-center gap-2">
                         {isLoading ? <Spinner /> : 'Generate Campaign Plan'}
                     </button>
                 </form>
@@ -81,6 +122,16 @@ const Campaigns: React.FC = () => {
                     <div className="text-center p-6 bg-slate-100 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700">
                         <h2 className="text-3xl font-bold text-brand-blue">{campaignPlan.campaignTitle}</h2>
                         <p className="text-xl text-slate-800 dark:text-white mt-2 font-light">"{campaignPlan.slogan}"</p>
+                        {openLinkedInHub && (
+                            <button
+                                type="button"
+                                onClick={handlePushToLinkedIn}
+                                className="mt-4 inline-flex items-center gap-2 bg-blue-600 text-white font-bold py-2.5 px-5 rounded-md hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.238 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z" /></svg>
+                                Push LinkedIn ideas to scheduler
+                            </button>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

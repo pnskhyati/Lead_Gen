@@ -15,7 +15,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setIsLoading(true);
     setError('');
 
-    // Simulate API call
     setTimeout(() => {
       if (email === 'demo@nexora.com' && password === 'password') {
         onLoginSuccess();
@@ -27,19 +26,26 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 animate-fade-in">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center p-6 animate-fade-in relative overflow-hidden">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-24 -left-16 w-80 h-80 rounded-full bg-soft-lilac/25 blur-3xl" />
+        <div className="absolute top-1/3 -right-20 w-96 h-96 rounded-full bg-soft-mint/40 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 w-72 h-72 rounded-full bg-soft-azure/20 blur-3xl" />
+      </div>
+
+      <div className="w-full max-w-md relative z-10">
         <div className="text-center mb-8">
-            <h1 className="font-bold text-4xl text-slate-900 dark:text-white tracking-wider">
-                Nexora
-            </h1>
-            <p className="text-slate-500 dark:text-slate-400 mt-2 text-lg">GenAI Digital Commerce Assistant</p>
+          <div className="mx-auto mb-5 w-16 h-16 rounded-[1.35rem] bg-gradient-to-br from-soft-deep via-soft-azure to-soft-lilac text-white flex items-center justify-center font-extrabold text-2xl shadow-aqua">
+            N
+          </div>
+          <h1 className="font-display font-semibold text-5xl text-ink tracking-tight">Nexora</h1>
+          <p className="text-ink-muted mt-2 text-sm font-medium tracking-wide">Premium GenAI commerce suite</p>
         </div>
-        
-        <div className="bg-white/40 dark:bg-slate-900/50 backdrop-blur-lg p-8 rounded-xl border border-slate-200/80 dark:border-slate-700/60 shadow-2xl shadow-black/5 dark:shadow-black/30">
-          <form onSubmit={handleSubmit} className="space-y-6">
+
+        <div className="bg-white/70 backdrop-blur-2xl p-8 rounded-[2rem] border border-soft-sky/50 shadow-soft-lg">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label htmlFor="email" className="block text-sm font-semibold text-ink-soft mb-2">
                 Email Address
               </label>
               <input
@@ -50,12 +56,12 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-white/50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue transition-colors"
+                className="nexora-input w-full py-3 px-4 text-sm text-ink"
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label htmlFor="password" className="block text-sm font-semibold text-ink-soft mb-2">
                 Password
               </label>
               <input
@@ -66,25 +72,23 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-white/50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue transition-colors"
+                className="nexora-input w-full py-3 px-4 text-sm text-ink"
               />
             </div>
-            
-            {error && <p className="text-sm text-red-500 dark:text-red-400 text-center">{error}</p>}
 
-            <div>
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-lg shadow-brand-blue/30 text-sm font-medium text-white bg-brand-blue hover:bg-brand-blue/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-blue transition-all duration-300 hover:shadow-brand-blue/40 hover:-translate-y-0.5 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
-              >
-                {isLoading ? 'Signing in...' : 'Sign in'}
-              </button>
-            </div>
+            {error && <p className="text-sm text-soft-coral text-center font-medium">{error}</p>}
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="nexora-btn-primary w-full py-3.5 text-sm"
+            >
+              {isLoading ? 'Signing in...' : 'Sign in'}
+            </button>
           </form>
-           <p className="mt-6 text-center text-xs text-slate-500 dark:text-slate-500">
-              Use <code className="bg-slate-200 dark:bg-slate-700 p-1 rounded">demo@nexora.com</code> and <code className="bg-slate-200 dark:bg-slate-700 p-1 rounded">password</code> to sign in.
-            </p>
+          <p className="text-center text-xs text-ink-muted mt-5">
+            Demo · demo@nexora.com / password
+          </p>
         </div>
       </div>
     </div>

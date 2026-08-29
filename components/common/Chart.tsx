@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 import type { ChartData } from '../../types';
 import Spinner from './Spinner';
-import { useTheme } from '../../contexts/ThemeContext';
 
 interface ChartProps {
   chartData: ChartData | null;
@@ -12,14 +11,13 @@ interface ChartProps {
 type ChartType = 'bar' | 'line';
 type DateRange = '7D' | '30D' | '90D' | 'ALL';
 
-// Helper component for toggle buttons
 const ToggleButton: React.FC<{ label: string; isActive: boolean; onClick: () => void; }> = ({ label, isActive, onClick }) => (
   <button
     onClick={onClick}
-    className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+    className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-all ${
       isActive
-        ? 'bg-brand-blue text-white shadow'
-        : 'bg-slate-200 dark:bg-slate-700/50 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
+        ? 'bg-gradient-to-r from-soft-deep to-soft-azure text-white shadow-aqua'
+        : 'text-ink-muted hover:text-ink hover:bg-white/90 hover:shadow-sm'
     }`}
   >
     {label}
@@ -27,7 +25,6 @@ const ToggleButton: React.FC<{ label: string; isActive: boolean; onClick: () => 
 );
 
 const Chart: React.FC<ChartProps> = ({ chartData, isLoading = false }) => {
-  const { theme } = useTheme();
   const [chartType, setChartType] = useState<ChartType>('line');
   const [dateRange, setDateRange] = useState<DateRange>('ALL');
 
@@ -40,45 +37,43 @@ const Chart: React.FC<ChartProps> = ({ chartData, isLoading = false }) => {
     return data.slice(-sliceCount);
   }, [chartData, dateRange]);
 
-  const tickColor = theme === 'light' ? '#475569' : '#9ca3af';
-  const gridColor = theme === 'light' ? '#e2e8f0' : '#374151';
+  const tickColor = '#6A8F93';
+  const gridColor = '#D4EDEF';
 
   const tickFormatter = (dateStr: string) => {
-    // Check if it's a valid date string to avoid errors with categorical data
     if (isNaN(Date.parse(dateStr))) {
-        return dateStr;
+      return dateStr;
     }
     const date = new Date(dateStr);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   const interval = useMemo(() => {
-      if (filteredData.length > 60) return Math.floor(filteredData.length / 10);
-      if (filteredData.length > 30) return 5;
-      if (filteredData.length > 14) return 1;
-      return 0;
+    if (filteredData.length > 60) return Math.floor(filteredData.length / 10);
+    if (filteredData.length > 30) return 5;
+    if (filteredData.length > 14) return 1;
+    return 0;
   }, [filteredData]);
-
 
   if (isLoading) {
     return (
-        <div className="w-full h-80 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400">
-            <Spinner />
-            <p className="mt-2 text-sm">Loading Chart...</p>
-        </div>
+      <div className="w-full h-80 flex flex-col items-center justify-center text-ink-muted">
+        <Spinner />
+        <p className="mt-2 text-sm font-medium">Loading chart…</p>
+      </div>
     );
   }
 
   if (!chartData || !chartData.data || chartData.data.length === 0) {
-    return <div className="w-full h-80 flex items-center justify-center text-slate-500 dark:text-slate-500 text-sm">No data available to display chart.</div>;
+    return <div className="w-full h-80 flex items-center justify-center text-ink-muted text-sm">No data available to display chart.</div>;
   }
-  
+
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm p-2 border border-slate-200 dark:border-slate-700 rounded-md shadow-lg">
-          <p className="label text-slate-900 dark:text-white font-bold">{tickFormatter(label)}</p>
-          <p className="intro text-brand-blue">{`Value : ${payload[0].value.toLocaleString()}`}</p>
+        <div className="bg-gradient-to-r from-soft-deep to-soft-azure text-white px-3 py-2 rounded-full shadow-aqua text-xs font-semibold">
+          <span className="opacity-70 mr-2">{tickFormatter(label)}</span>
+          {payload[0].value.toLocaleString()}
         </div>
       );
     }
@@ -86,70 +81,74 @@ const Chart: React.FC<ChartProps> = ({ chartData, isLoading = false }) => {
   };
 
   const commonXAxisProps = {
-    dataKey: "name" as const,
-    tick: { fill: tickColor, fontSize: 12 },
+    dataKey: 'name' as const,
+    tick: { fill: tickColor, fontSize: 11 },
     angle: -35,
-    textAnchor: "end" as const,
+    textAnchor: 'end' as const,
     height: 60,
     interval: interval,
     tickFormatter: tickFormatter,
+    axisLine: false,
+    tickLine: false,
   };
 
   const commonYAxisProps = {
-      tick: { fill: tickColor, fontSize: 12 },
-      tickFormatter: (value: number) => value.toLocaleString(),
+    tick: { fill: tickColor, fontSize: 11 },
+    tickFormatter: (value: number) => value.toLocaleString(),
+    axisLine: false,
+    tickLine: false,
   };
 
   const renderChart = () => {
     if (chartType === 'bar') {
-        return (
-            <BarChart
-                data={filteredData}
-                margin={{ top: 5, right: 20, left: -10, bottom: 20 }}
-            >
-                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-                <XAxis {...commonXAxisProps} />
-                <YAxis {...commonYAxisProps} />
-                <Tooltip content={<CustomTooltip />} cursor={{fill: 'rgba(0, 191, 255, 0.1)'}} />
-                <Bar dataKey="value" fill="#00BFFF" barSize={30} />
-            </BarChart>
-        );
+      return (
+        <BarChart data={filteredData} margin={{ top: 5, right: 20, left: -10, bottom: 20 }}>
+          <CartesianGrid strokeDasharray="4 4" stroke={gridColor} vertical={false} />
+          <XAxis {...commonXAxisProps} />
+          <YAxis {...commonYAxisProps} />
+          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(13, 155, 166, 0.08)' }} />
+          <Bar dataKey="value" fill="#0D9BA6" radius={[10, 10, 10, 10]} barSize={28} />
+        </BarChart>
+      );
     }
     return (
-        <LineChart
-            data={filteredData}
-            margin={{ top: 5, right: 20, left: -10, bottom: 20 }}
-        >
-            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-            <XAxis {...commonXAxisProps} />
-            <YAxis {...commonYAxisProps} />
-            <Tooltip content={<CustomTooltip />} cursor={{stroke: 'rgba(0, 191, 255, 0.5)', strokeWidth: 1}} />
-            <Line type="monotone" dataKey="value" stroke="#00BFFF" strokeWidth={2} dot={false} activeDot={{ r: 6, stroke: theme === 'light' ? '#ffffff' : '#111111', strokeWidth: 2 }} />
-        </LineChart>
+      <AreaChart data={filteredData} margin={{ top: 5, right: 20, left: -10, bottom: 20 }}>
+        <defs>
+          <linearGradient id="nexoraArea" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#2BB8C0" stopOpacity={0.4} />
+            <stop offset="100%" stopColor="#2BB8C0" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="4 4" stroke={gridColor} vertical={false} />
+        <XAxis {...commonXAxisProps} />
+        <YAxis {...commonYAxisProps} />
+        <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#0D9BA6', strokeWidth: 1 }} />
+        <Area type="monotone" dataKey="value" stroke="#0A6B73" strokeWidth={2.5} fill="url(#nexoraArea)" activeDot={{ r: 6, fill: '#0A6B73', stroke: '#fff', strokeWidth: 2 }} />
+      </AreaChart>
     );
   };
 
   return (
     <div className="w-full h-full min-h-[320px] flex flex-col">
-        <div className="flex justify-between items-center mb-4 gap-4 flex-wrap">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{chartData.title}</h3>
-          <div className="flex items-center gap-4">
-            <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
-                {(['7D', '30D', '90D', 'ALL'] as DateRange[]).map(range => (
-                <ToggleButton key={range} label={range} isActive={dateRange === range} onClick={() => setDateRange(range)} />
-                ))}
-            </div>
-            <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
-              <ToggleButton label="Line" isActive={chartType === 'line'} onClick={() => setChartType('line')} />
-              <ToggleButton label="Bar" isActive={chartType === 'bar'} onClick={() => setChartType('bar')} />
-            </div>
+      <div className="flex justify-between items-center mb-4 gap-4 flex-wrap">
+        <h3 className="text-lg font-bold text-ink">{chartData.title}</h3>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="inline-flex bg-soft-bg p-1 rounded-full">
+            {(['7D', '30D', '90D', 'ALL'] as DateRange[]).map(range => (
+              <ToggleButton key={range} label={range} isActive={dateRange === range} onClick={() => setDateRange(range)} />
+            ))}
+          </div>
+          <div className="inline-flex bg-soft-bg p-1 rounded-full">
+            <ToggleButton label="Line" isActive={chartType === 'line'} onClick={() => setChartType('line')} />
+            <ToggleButton label="Bar" isActive={chartType === 'bar'} onClick={() => setChartType('bar')} />
           </div>
         </div>
-        <div className="flex-grow">
-            <ResponsiveContainer width="100%" height="100%">
-                {renderChart()}
-            </ResponsiveContainer>
-        </div>
+      </div>
+      <div className="flex-grow">
+        <ResponsiveContainer width="100%" height="100%">
+          {renderChart()}
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 };

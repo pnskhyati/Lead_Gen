@@ -4,39 +4,66 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Nexora: GenAI Assistant</title>
+    <title>Nexora</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
-        darkMode: 'class', // Enable class-based dark mode
+        darkMode: 'class',
         theme: {
           extend: {
             fontFamily: {
-              sans: ['Poppins', 'sans-serif'],
+              sans: ['"Sora"', 'sans-serif'],
+              display: ['"Cormorant Garamond"', 'Georgia', 'serif'],
             },
             colors: {
-              'brand-blue': '#00BFFF',
-              'brand-violet': '#6C63FF',
-              'slate': {
-                300: '#d1d5db',
-                400: '#9ca3af',
-                500: '#6b7280',
-                600: '#4b5563',
-                700: '#374151',
-                800: '#1f2937',
-                900: '#0f172a',
+              ink: {
+                DEFAULT: '#0B2C2F',
+                soft: '#1A4A4E',
+                muted: '#6A8F93',
               },
+              soft: {
+                bg: '#EEF7F8',
+                card: '#FFFFFF',
+                lavender: '#D4F4F6',
+                sky: '#C5F0F3',
+                mint: '#B8EBE6',
+                peach: '#D8F5F0',
+                coral: '#E07A6A',
+                lilac: '#2BB8C0',
+                azure: '#0D9BA6',
+                deep: '#0A6B73',
+                foam: '#E8FAF8',
+                mist: '#F3FBFB',
+              },
+              'brand-blue': '#0D9BA6',
+              'brand-violet': '#2BB8C0',
+            },
+            boxShadow: {
+              soft: '0 10px 40px rgba(10, 107, 115, 0.08)',
+              'soft-lg': '0 20px 60px rgba(10, 107, 115, 0.12)',
+              'soft-hover': '0 14px 44px rgba(10, 107, 115, 0.16)',
+              aqua: '0 12px 32px rgba(13, 155, 166, 0.28)',
+            },
+            borderRadius: {
+              '2.5xl': '1.25rem',
+              '3xl': '1.5rem',
+              '4xl': '2rem',
             },
             animation: {
-              'fade-in': 'fadeIn 0.5s ease-in-out',
+              'fade-in': 'fadeIn 0.5s ease-out',
+              'shimmer': 'shimmer 8s ease-in-out infinite',
             },
             keyframes: {
               fadeIn: {
                 '0%': { opacity: '0', transform: 'translateY(10px)' },
                 '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+              shimmer: {
+                '0%, 100%': { backgroundPosition: '0% 50%' },
+                '50%': { backgroundPosition: '100% 50%' },
               },
             },
           }
@@ -44,67 +71,103 @@
       }
     </script>
     <style>
+      :root {
+        --nexora-ink: #0B2C2F;
+        --nexora-muted: #6A8F93;
+        --nexora-card: #ffffff;
+        --nexora-aqua: #0D9BA6;
+        --nexora-aqua-deep: #0A6B73;
+        --nexora-aqua-bright: #2BB8C0;
+        --nexora-shadow: 0 10px 40px rgba(10, 107, 115, 0.08);
+      }
+
+      html, body, #root {
+        min-height: 100%;
+      }
+
       body {
-        font-family: 'Poppins', sans-serif;
-        position: relative;
+        font-family: 'Sora', sans-serif;
+        color: var(--nexora-ink);
+        background:
+          radial-gradient(ellipse 90% 70% at 8% -10%, rgba(43, 184, 192, 0.28) 0%, transparent 55%),
+          radial-gradient(ellipse 70% 55% at 95% 5%, rgba(184, 235, 230, 0.55) 0%, transparent 50%),
+          radial-gradient(ellipse 55% 45% at 85% 95%, rgba(13, 155, 166, 0.14) 0%, transparent 48%),
+          radial-gradient(ellipse 50% 40% at 5% 85%, rgba(232, 250, 248, 0.9) 0%, transparent 42%),
+          linear-gradient(160deg, #F3FBFB 0%, #EEF7F8 45%, #E8F4F5 100%);
+        background-attachment: fixed;
         overflow-x: hidden;
-      }
-      
-      /* Only show glows in dark mode */
-      .dark body::after,
-      .dark .corner-glow-br {
-        opacity: 0.15;
+        -webkit-font-smoothing: antialiased;
       }
 
-      body::after,
-      .corner-glow-br {
-        content: '';
-        position: fixed;
-        z-index: -1;
-        pointer-events: none;
-        border-radius: 50%;
-        filter: blur(250px);
-        opacity: 0;
-        transition: opacity 0.5s ease-in-out;
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #B5D9DC;
+        border-radius: 999px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #7EBDC3;
       }
 
-      /* Top-left corner light (Violet) */
-      body::after {
-        width: 35vw;
-        height: 35vw;
-        min-width: 400px;
-        min-height: 400px;
-        top: -15%;
-        left: -15%;
-        background: '#6C63FF';
+      .nexora-card {
+        background: rgba(255, 255, 255, 0.78);
+        backdrop-filter: blur(20px) saturate(1.2);
+        -webkit-backdrop-filter: blur(20px) saturate(1.2);
+        border: 1px solid rgba(197, 240, 243, 0.65);
+        border-radius: 1.5rem;
+        box-shadow: var(--nexora-shadow);
       }
 
-      /* Bottom-right corner light (Electric Blue) */
-      .corner-glow-br {
-        width: 35vw;
-        height: 35vw;
-        min-width: 400px;
-        min-height: 400px;
-        bottom: -15%;
-        right: -15%;
-        background: '#00BFFF';
+      .nexora-pill {
+        border-radius: 9999px;
+      }
+
+      .nexora-input {
+        background: rgba(238, 247, 248, 0.9);
+        border: 1px solid rgba(197, 240, 243, 0.8);
+        border-radius: 9999px;
+        transition: box-shadow 0.2s, background 0.2s, border-color 0.2s;
+      }
+      .nexora-input:focus {
+        outline: none;
+        background: #fff;
+        border-color: #2BB8C0;
+        box-shadow: 0 0 0 4px rgba(13, 155, 166, 0.18);
+      }
+
+      .nexora-btn-primary {
+        background: linear-gradient(135deg, #0A6B73 0%, #0D9BA6 55%, #2BB8C0 100%);
+        background-size: 160% 160%;
+        color: #fff;
+        border-radius: 9999px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        transition: transform 0.2s ease, box-shadow 0.25s ease, background-position 0.35s ease;
+        box-shadow: 0 12px 28px rgba(13, 155, 166, 0.32);
+      }
+      .nexora-btn-primary:hover:not(:disabled) {
+        background-position: 100% 50%;
+        transform: translateY(-1px);
+        box-shadow: 0 16px 36px rgba(10, 107, 115, 0.38);
+      }
+      .nexora-btn-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        box-shadow: none;
+      }
+
+      .font-display {
+        font-family: 'Cormorant Garamond', Georgia, serif;
       }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
-    "recharts": "https://aistudiocdn.com/recharts@^2.12.0"
-  }
-}
-</script>
-</head>
-  <body class="bg-slate-50 dark:bg-black text-slate-800 dark:text-slate-300 antialiased">
+  </head>
+  <body class="text-ink antialiased">
     <div id="root"></div>
-    <div class="corner-glow-br"></div>
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>

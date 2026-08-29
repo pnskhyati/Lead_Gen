@@ -1,142 +1,153 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useTheme } from '../contexts/ThemeContext';
+import type { View } from '../types';
 
 interface HeaderProps {
   onLogout: () => void;
+  currentView?: View;
+  setCurrentView?: (view: View) => void;
 }
 
-const ThemeToggle: React.FC = () => {
-    const { theme, toggleTheme } = useTheme();
+const VIEW_LABELS: Record<View, string> = {
+  insights: 'Dashboard',
+  campaigns: 'Campaigns',
+  lab: 'Creative Lab',
+  linkedin: 'Social Hub',
+  automation: 'Leads',
+  chat: 'AI Assistant',
+};
 
-    return (
-        <button
-            onClick={toggleTheme}
-            aria-label="Toggle theme"
-            className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-200/50 dark:bg-slate-700/50 hover:bg-slate-300/50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors duration-200"
-        >
-            {theme === 'light' ? (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.706-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 14.464A1 1 0 106.465 13.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm-1.414-2.12a1 1 0 011.414 0l.706.707a1 1 0 11-1.414 1.414l-.706-.707a1 1 0 010-1.414zM4 11a1 1 0 100-2H3a1 1 0 100 2h1z" clipRule="evenodd" />
-                </svg>
-            ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
-                </svg>
-            )}
-        </button>
-    )
-}
+const TOP_TABS: { view: View; label: string }[] = [
+  { view: 'insights', label: 'Dashboard' },
+  { view: 'campaigns', label: 'Campaigns' },
+  { view: 'lab', label: 'Creative Lab' },
+  { view: 'linkedin', label: 'Social' },
+  { view: 'chat', label: 'AI Chat' },
+];
 
 const NotificationsDropdown: React.FC = () => {
   const notifications = [
-    {
-      icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" /></svg>,
-      title: "New report available: Q2 Sales Performance",
-      time: "5 mins ago"
-    },
-    {
-      icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>,
-      title: "Campaign 'Summer Sips' needs approval",
-      time: "1 hour ago"
-    },
-    {
-      icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-sky-500" viewBox="0 0 20 20" fill="currentColor"><path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" /><path d="M15 7v2a2 2 0 012 2v5a2 2 0 01-2 2h-1v-2a5 5 0 00-5-5H7V7a3 3 0 013-3h5z" /></svg>,
-      title: "Mention detected on Instagram for Smirnoff",
-      time: "3 hours ago"
-    }
+    { title: 'New report available: Q2 Sales Performance', time: '5 mins ago', tint: 'bg-soft-mint text-emerald-600' },
+    { title: "Campaign 'Summer Sips' needs approval", time: '1 hour ago', tint: 'bg-soft-mint text-soft-deep' },
+    { title: 'Mention detected on Instagram for Smirnoff', time: '3 hours ago', tint: 'bg-soft-sky text-soft-azure' },
   ];
 
   return (
-    <div className="absolute top-12 right-0 w-80 bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl border border-slate-200/80 dark:border-slate-700/60 rounded-xl shadow-2xl shadow-black/10 dark:shadow-black/30 animate-fade-in origin-top-right">
-      <div className="p-4 border-b border-slate-200/80 dark:border-slate-700/80">
-        <h3 className="font-semibold text-slate-800 dark:text-white">Notifications</h3>
+    <div className="absolute top-12 right-0 w-80 bg-white/95 backdrop-blur-xl border border-white shadow-soft-lg rounded-3xl animate-fade-in origin-top-right overflow-hidden z-50">
+      <div className="p-4 border-b border-slate-100">
+        <h3 className="font-semibold text-ink">Notifications</h3>
       </div>
-      <ul className="divide-y divide-slate-200/80 dark:divide-slate-700/80">
+      <ul>
         {notifications.map((item, index) => (
           <li key={index}>
-            <a href="#" className="flex items-start gap-3 p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-900/50 flex items-center justify-center">
-                {item.icon}
+            <a href="#" className="flex items-start gap-3 p-4 hover:bg-soft-bg/80 transition-colors">
+              <div className={`flex-shrink-0 w-9 h-9 rounded-2xl flex items-center justify-center ${item.tint}`}>
+                <span className="w-2 h-2 rounded-full bg-current" />
               </div>
               <div className="flex-1">
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{item.title}</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{item.time}</p>
+                <p className="text-sm font-medium text-ink-soft">{item.title}</p>
+                <p className="text-xs text-ink-muted mt-1">{item.time}</p>
               </div>
             </a>
           </li>
         ))}
       </ul>
-      <div className="p-2">
-        <a href="#" className="block w-full text-center text-sm font-semibold text-brand-blue hover:bg-brand-blue/10 rounded-md py-2 transition-colors">
-          View all notifications
-        </a>
-      </div>
     </div>
   );
 };
 
-
-const Header: React.FC<HeaderProps> = ({ onLogout }) => {
+const Header: React.FC<HeaderProps> = ({ onLogout, currentView = 'insights', setCurrentView }) => {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const notificationsRef = useRef<HTMLDivElement>(null);
-  
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
         setIsNotificationsOpen(false);
       }
     };
-
     if (isNotificationsOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isNotificationsOpen]);
 
-
-  const IconButton: React.FC<{ children: React.ReactNode; onClick?: () => void; ariaLabel: string; className?: string; }> = ({ children, onClick, ariaLabel, className }) => (
-    <button
-      onClick={onClick}
-      aria-label={ariaLabel}
-      className={`relative w-10 h-10 flex items-center justify-center rounded-full bg-slate-200/50 dark:bg-slate-700/50 hover:bg-slate-300/50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors duration-200 ${className}`}
-    >
-      {children}
-    </button>
-  );
-
   return (
-    <header className="relative z-10 flex-shrink-0 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl border-b border-slate-200/50 dark:border-slate-800/50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          <div className="flex items-center">
-            {/* Placeholder for a page title */}
-            <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Dashboard</h1>
+    <header className="relative z-10 flex-shrink-0 px-2 sm:px-4 pt-4 pb-2">
+      <div className="bg-white/65 backdrop-blur-2xl border border-soft-sky/40 shadow-soft rounded-[1.75rem] px-4 sm:px-6 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-soft-azure">Nexora</p>
+            <h1 className="font-display text-2xl font-semibold text-ink truncate leading-tight">{VIEW_LABELS[currentView]}</h1>
           </div>
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-            
-            <div className="relative" ref={notificationsRef}>
-              <IconButton 
-                ariaLabel="Notifications"
-                onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
-                </svg>
-                <span className="absolute top-2 right-2 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-slate-800/70" />
-              </IconButton>
-              {isNotificationsOpen && <NotificationsDropdown />}
-            </div>
+        </div>
 
-            <IconButton onClick={onLogout} ariaLabel="Logout">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
+        {setCurrentView && (
+          <nav className="hidden md:flex items-center gap-1 p-1 bg-soft-foam/90 rounded-full border border-soft-sky/40">
+            {TOP_TABS.map((tab) => {
+              const active = currentView === tab.view;
+              return (
+                <button
+                  key={tab.view}
+                  type="button"
+                  onClick={() => setCurrentView(tab.view)}
+                  className={`px-4 py-2 text-xs font-semibold rounded-full transition-all ${
+                    active
+                      ? 'bg-gradient-to-r from-soft-deep to-soft-azure text-white shadow-aqua'
+                      : 'text-ink-muted hover:text-ink hover:bg-white/90 hover:shadow-sm'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+        )}
+
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="relative flex-1 sm:flex-none sm:w-56">
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search…"
+              className="nexora-input w-full py-2.5 pl-4 pr-11 text-sm text-ink placeholder:text-ink-muted"
+            />
+            <button
+              type="button"
+              aria-label="Search"
+              className="absolute right-1 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-gradient-to-br from-soft-deep to-soft-azure text-white flex items-center justify-center shadow-aqua"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z" />
               </svg>
-            </IconButton>
+            </button>
           </div>
+
+          <div className="relative" ref={notificationsRef}>
+            <button
+              type="button"
+              aria-label="Notifications"
+              onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+              className="relative w-10 h-10 rounded-2xl bg-soft-bg text-ink-soft hover:bg-white hover:text-ink hover:shadow-soft flex items-center justify-center transition-all hover:-translate-y-0.5"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+              <span className="absolute top-2 right-2 block h-2 w-2 rounded-full bg-soft-coral ring-2 ring-white" />
+            </button>
+            {isNotificationsOpen && <NotificationsDropdown />}
+          </div>
+
+          <button
+            type="button"
+            onClick={onLogout}
+            aria-label="Logout"
+            className="w-10 h-10 rounded-full overflow-hidden border-2 border-white shadow-soft bg-soft-sky flex items-center justify-center text-sm font-bold text-soft-deep hover:shadow-soft-hover hover:-translate-y-0.5 transition-all"
+            title="Sign out"
+          >
+            N
+          </button>
         </div>
       </div>
     </header>

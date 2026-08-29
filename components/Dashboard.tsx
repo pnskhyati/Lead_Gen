@@ -1,47 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import Card from './common/Card';
 import Chart from './common/Chart';
-import type { View, ChartData } from '../types';
+import LeadBadge from './common/LeadBadge';
+import type { View, ChartData, Lead, LeadTemperature } from '../types';
 import { BRAND_PRODUCTS } from '../constants';
+import { getLeads, getLeadCounts, updateLeadStatus } from '../services/leadStore';
+import InstagramConnect from './InstagramConnect';
 
 interface DashboardProps {
     setCurrentView: (view: View) => void;
 }
 
-interface KpiData {
-    sentiment: { value: string; change: string; color: string; };
-    mentions: { value: string; change: string; color: string; };
-    marketShare: { value: string; change: string; color: string; };
-}
-
-const KPICard: React.FC<{ title: string; value: string; change: string; icon: React.ReactNode; changeColor: string }> = ({ title, value, change, icon, changeColor }) => (
-    <Card>
+const KPICard: React.FC<{ title: string; value: string; change: string; icon: React.ReactNode; changeColor: string; tint: string }> = ({ title, value, change, icon, changeColor, tint }) => (
+    <Card className="!p-5">
         <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</p>
-            <div className="text-brand-blue">{icon}</div>
+            <p className="text-sm font-semibold text-ink-muted">{title}</p>
+            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${tint}`}>{icon}</div>
         </div>
-        <p className="text-3xl font-bold text-slate-900 dark:text-white mt-2">{value}</p>
-        <p className={`text-sm mt-1 ${changeColor}`}>{change}</p>
+        <p className="text-3xl font-extrabold text-ink mt-3 tracking-tight">{value}</p>
+        <p className={`text-sm mt-1 font-medium ${changeColor}`}>{change}</p>
     </Card>
 );
 
-const QuickAction: React.FC<{ title: string; description: string; onClick: () => void; icon: React.ReactNode }> = ({ title, description, onClick, icon }) => (
-     <button onClick={onClick} className="w-full text-left bg-slate-100/50 hover:bg-slate-200/60 dark:bg-slate-800/50 dark:hover:bg-slate-800/80 p-4 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-brand-blue/50 transition-all duration-200 flex items-center gap-4">
-        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-white dark:bg-slate-900 border-2 border-brand-blue/50 flex items-center justify-center">
+const QuickAction: React.FC<{ title: string; description: string; onClick: () => void; icon: React.ReactNode; tint: string }> = ({ title, description, onClick, icon, tint }) => (
+     <button onClick={onClick} className="w-full text-left bg-soft-bg/70 hover:bg-white p-4 rounded-3xl border border-transparent hover:border-white hover:shadow-soft transition-all duration-200 flex items-center gap-4">
+        <div className={`flex-shrink-0 w-11 h-11 rounded-2xl flex items-center justify-center ${tint}`}>
             {icon}
         </div>
         <div>
-            <h4 className="font-bold text-slate-800 dark:text-white">{title}</h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{description}</p>
+            <h4 className="font-bold text-ink">{title}</h4>
+            <p className="text-xs text-ink-muted mt-0.5">{description}</p>
         </div>
      </button>
 );
 
-// Helper to generate realistic-looking sample time-series data, seeded by brand
 const generateSampleSalesData = (days: number, brand: string): { name: string; value: number }[] => {
     const data = [];
     const today = new Date();
-    // Use the brand name to create a simple hash for seeding randomness
     const seed = brand.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
 
     for (let i = days - 1; i >= 0; i--) {
@@ -49,95 +44,76 @@ const generateSampleSalesData = (days: number, brand: string): { name: string; v
         date.setDate(today.getDate() - i);
         
         const dayOfWeek = date.getDay();
-        // Base sales vary based on brand "popularity" (seeded hash)
         const baseSales = 20000 + (seed % 15000); 
         const weekendBoost = (dayOfWeek === 0 || dayOfWeek === 6) ? baseSales * 0.5 : 0;
-        // Seeded random factor
         const randomFactor = (Math.sin(seed + i) * 10000) / 2;
         const trend = (days - i) * (seed % 100);
 
         const sales = baseSales + weekendBoost + randomFactor + trend;
 
         data.push({
-            name: date.toISOString().split('T')[0], // YYYY-MM-DD format
-            value: Math.max(5000, Math.round(sales)) // Ensure sales are not negative
+            name: date.toISOString().split('T')[0],
+            value: Math.max(5000, Math.round(sales))
         });
     }
     return data;
 };
 
-// Helper to generate mock KPIs based on the brand name
-const generateMockKpis = (brand: string): KpiData => {
-    const seed = brand.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    
-    const sentiments = ['Positive', 'Neutral', 'Mixed'];
-    const changes = [2.5, 1.2, -0.5, 5.1, -3.2];
-    
-    const sentimentChange = changes[seed % changes.length];
-    const mentionsChange = changes[(seed + 1) % changes.length] * 3;
-    // FIX: `marketShareChange` was a string, causing a type error when comparing with a number.
-    // Introduced `marketShareChangeNum` for numeric comparison and kept `marketShareChange` as the formatted string.
-    const marketShareChangeNum = (changes[(seed + 2) % changes.length] / 10);
-    const marketShareChange = marketShareChangeNum.toFixed(1);
-
-    return {
-        sentiment: {
-            value: sentiments[seed % sentiments.length],
-            change: `${sentimentChange > 0 ? '+' : ''}${sentimentChange.toFixed(1)}% vs last week`,
-            color: sentimentChange >= 0 ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400',
-        },
-        mentions: {
-            value: `${((seed % 15) + 5).toFixed(1)}K`,
-            change: `${mentionsChange > 0 ? '+' : ''}${mentionsChange.toFixed(1)}% vs last week`,
-            color: mentionsChange >= 0 ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400',
-        },
-        marketShare: {
-            value: `${((seed % 10) + 15).toFixed(1)}%`,
-            change: `${marketShareChangeNum > 0 ? '+' : ''}${marketShareChange}% vs last quarter`,
-            color: marketShareChangeNum >= 0 ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400',
-        },
-    };
-};
+const TEMP_FILTERS: Array<'all' | LeadTemperature> = ['all', 'hot', 'warm', 'cold'];
 
 const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
     const [selectedBrand, setSelectedBrand] = useState<string>('Johnnie Walker');
     const [salesData, setSalesData] = useState<ChartData | null>(null);
-    const [kpiData, setKpiData] = useState<KpiData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [leads, setLeads] = useState<Lead[]>([]);
+    const [leadFilter, setLeadFilter] = useState<'all' | LeadTemperature>('all');
+
+    const refreshLeads = () => {
+        setLeads(getLeads());
+    };
 
     useEffect(() => {
-        // Simulate fetching data for the selected brand
+        refreshLeads();
+        const onUpdate = () => refreshLeads();
+        window.addEventListener('nexora-leads-updated', onUpdate);
+        window.addEventListener('storage', onUpdate);
+        return () => {
+            window.removeEventListener('nexora-leads-updated', onUpdate);
+            window.removeEventListener('storage', onUpdate);
+        };
+    }, []);
+
+    useEffect(() => {
         setIsLoading(true);
-        // Add a slight delay to make the loading state visible and feel responsive
         const timer = setTimeout(() => {
-            const newKpis = generateMockKpis(selectedBrand);
-            const newSalesData: ChartData = {
+            setSalesData({
                 title: `Daily Sales Volume for ${selectedBrand} (Units)`,
                 data: generateSampleSalesData(120, selectedBrand),
-            };
-            setKpiData(newKpis);
-            setSalesData(newSalesData);
+            });
             setIsLoading(false);
         }, 500);
 
-        return () => clearTimeout(timer); // Cleanup timer on unmount or re-run
+        return () => clearTimeout(timer);
     }, [selectedBrand]);
+
+    const counts = getLeadCounts();
+    const filteredLeads = leadFilter === 'all' ? leads : leads.filter((l) => l.temperature === leadFilter);
 
     const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = (props) => (
         <select
             {...props}
-            className="w-full sm:w-64 bg-white/50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 rounded-md shadow-sm py-2 px-3 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-brand-blue transition-colors"
+            className="w-full sm:w-64 nexora-input py-2.5 px-4 text-sm font-semibold text-ink !rounded-full"
         >
             {props.children}
         </select>
     );
 
     return (
-        <div className="animate-fade-in space-y-8">
+        <div className="space-y-6">
              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Insights Dashboard</h1>
-                    <p className="text-slate-500 dark:text-slate-400 mt-1">A real-time overview of your brand's digital ecosystem.</p>
+                    <h1 className="font-display text-4xl font-semibold text-ink tracking-tight">Insights</h1>
+                    <p className="text-ink-muted mt-1 font-medium">Lead pipeline and brand digital health.</p>
                 </div>
                 <div>
                     <label htmlFor="brand-selector" className="sr-only">Select a Brand</label>
@@ -155,60 +131,148 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <KPICard 
-                    title="Global Sentiment" 
-                    value={isLoading ? '...' : kpiData?.sentiment.value ?? 'N/A'} 
-                    change={isLoading ? '...' : kpiData?.sentiment.change ?? ''} 
-                    icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                    changeColor={isLoading ? 'text-slate-400' : kpiData?.sentiment.color ?? 'text-slate-400'}
+                    title="Hot Leads" 
+                    value={String(counts.hot)} 
+                    change="Ready to buy / strong intent"
+                    tint="bg-soft-coral/20 text-soft-coral"
+                    icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z" /></svg>}
+                    changeColor="text-soft-coral"
                 />
                  <KPICard 
-                    title="Media Mentions" 
-                    value={isLoading ? '...' : kpiData?.mentions.value ?? 'N/A'} 
-                    change={isLoading ? '...' : kpiData?.mentions.change ?? ''} 
-                    icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3h3m-3 4h3m-3 4h3m-3 4h3" /></svg>}
-                    changeColor={isLoading ? 'text-slate-400' : kpiData?.mentions.color ?? 'text-slate-400'}
+                    title="Warm Leads" 
+                    value={String(counts.warm)} 
+                    change="Interested — nurture next"
+                    tint="bg-amber-50 text-amber-600"
+                    icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364 6.364l-1.414-1.414M7.05 7.05L5.636 5.636m12.728 0L16.95 7.05M7.05 16.95l-1.414 1.414M12 8a4 4 0 100 8 4 4 0 000-8z" /></svg>}
+                    changeColor="text-amber-600"
                 />
                  <KPICard 
-                    title="Market Share (Est.)" 
-                    value={isLoading ? '...' : kpiData?.marketShare.value ?? 'N/A'} 
-                    change={isLoading ? '...' : kpiData?.marketShare.change ?? ''} 
-                    icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>}
-                    changeColor={isLoading ? 'text-slate-400' : kpiData?.marketShare.color ?? 'text-slate-400'}
+                    title="Cold Leads" 
+                    value={String(counts.cold)} 
+                    change="Low intent — stay light-touch"
+                    tint="bg-soft-sky text-soft-azure"
+                    icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>}
+                    changeColor="text-soft-azure"
                 />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <InstagramConnect
+                compact
+                onSynced={() => refreshLeads()}
+            />
+
+            <Card>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                    <div>
+                        <h3 className="text-lg font-bold text-ink">Live leads</h3>
+                        <p className="text-sm text-ink-muted">From Automation interactions — scored Hot / Warm / Cold</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {TEMP_FILTERS.map((f) => (
+                            <button
+                                key={f}
+                                type="button"
+                                onClick={() => setLeadFilter(f)}
+                                className={`px-3 py-1.5 rounded-full text-xs font-bold capitalize transition-all ${
+                                    leadFilter === f
+                                        ? 'bg-gradient-to-r from-soft-deep to-soft-azure text-white shadow-aqua'
+                                        : 'bg-soft-bg text-ink-muted hover:bg-white'
+                                }`}
+                            >
+                                {f}
+                            </button>
+                        ))}
+                        <button
+                            type="button"
+                            onClick={() => setCurrentView('automation')}
+                            className="px-3 py-1.5 rounded-full text-xs font-bold bg-soft-mint text-soft-deep"
+                        >
+                            + Capture lead
+                        </button>
+                    </div>
+                </div>
+                {filteredLeads.length === 0 ? (
+                    <div className="text-center py-10 text-ink-muted text-sm">
+                        No leads yet. Open Automation, paste a comment, and score it.
+                    </div>
+                ) : (
+                    <ul className="space-y-3">
+                        {filteredLeads.slice(0, 12).map((lead) => (
+                            <li key={lead.id} className="bg-soft-bg/70 rounded-3xl px-4 py-3.5 flex flex-col sm:flex-row sm:items-start gap-3">
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                                        <LeadBadge temperature={lead.temperature} score={lead.score} />
+                                        <span className="text-xs font-semibold text-ink-muted">{lead.platform}</span>
+                                        {lead.source === 'instagram' && (
+                                            <span className="text-[10px] font-bold uppercase tracking-wide text-soft-azure bg-soft-sky px-2 py-0.5 rounded-full">
+                                              IG{lead.author ? ` · @${lead.author}` : ''}
+                                            </span>
+                                        )}
+                                        {lead.recommendedProduct && (
+                                            <span className="text-xs font-semibold text-ink-soft truncate">{lead.recommendedProduct}</span>
+                                        )}
+                                    </div>
+                                    <p className="text-sm text-ink line-clamp-2">“{lead.customerComment}”</p>
+                                    <p className="text-xs text-ink-muted mt-1.5">{lead.intentSummary}</p>
+                                </div>
+                                <div className="flex sm:flex-col items-center sm:items-end gap-2 shrink-0">
+                                    <select
+                                        value={lead.status}
+                                        onChange={(e) => {
+                                            updateLeadStatus(lead.id, e.target.value as Lead['status']);
+                                            refreshLeads();
+                                        }}
+                                        className="text-xs font-semibold bg-white rounded-full px-3 py-1.5 text-ink border-0 focus:outline-none focus:ring-2 focus:ring-soft-sky"
+                                    >
+                                        <option value="new">New</option>
+                                        <option value="contacted">Contacted</option>
+                                        <option value="qualified">Qualified</option>
+                                        <option value="closed">Closed</option>
+                                    </select>
+                                    <span className="text-[11px] text-ink-muted whitespace-nowrap">
+                                        {new Date(lead.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </Card>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 <div className="lg:col-span-2">
                     <Card className="h-full">
                         <Chart chartData={salesData} isLoading={isLoading} />
                     </Card>
                 </div>
-                <div className="space-y-4">
-                    <Card>
-                        <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-3">Trending Topics</h3>
-                        <ul className="space-y-2 text-sm">
-                            <li className="flex justify-between text-slate-600 dark:text-slate-300"><span>#SustainableSpirits</span> <span className="text-green-500 dark:text-green-400">▲ High</span></li>
-                            <li className="flex justify-between text-slate-600 dark:text-slate-300"><span>Don Julio Cocktails</span> <span className="text-amber-500 dark:text-amber-400">▶ Med</span></li>
-                            <li className="flex justify-between text-slate-600 dark:text-slate-300"><span>Guinness Ad Campaign</span> <span className="text-green-500 dark:text-green-400">▲ High</span></li>
-                            <li className="flex justify-between text-slate-600 dark:text-slate-300"><span>Johnnie Walker Heritage</span> <span className="text-slate-400 dark:text-slate-400">▼ Low</span></li>
+                <div className="space-y-5">
+                    <Card className="bg-soft-foam/80 !border-soft-sky/50">
+                        <h3 className="text-lg font-bold text-ink mb-3">Trending Topics</h3>
+                        <ul className="space-y-3 text-sm">
+                            <li className="flex justify-between items-center bg-white/80 rounded-2xl px-3 py-2.5"><span className="font-semibold text-ink-soft">#SustainableSpirits</span> <span className="text-xs font-bold text-soft-deep bg-soft-mint px-2 py-1 rounded-full">High</span></li>
+                            <li className="flex justify-between items-center bg-white/80 rounded-2xl px-3 py-2.5"><span className="font-semibold text-ink-soft">Don Julio Cocktails</span> <span className="text-xs font-bold text-soft-azure bg-soft-sky px-2 py-1 rounded-full">Med</span></li>
+                            <li className="flex justify-between items-center bg-white/80 rounded-2xl px-3 py-2.5"><span className="font-semibold text-ink-soft">Guinness Ad Campaign</span> <span className="text-xs font-bold text-soft-deep bg-soft-mint px-2 py-1 rounded-full">High</span></li>
+                            <li className="flex justify-between items-center bg-white/80 rounded-2xl px-3 py-2.5"><span className="font-semibold text-ink-soft">Johnnie Walker Heritage</span> <span className="text-xs font-bold text-ink-muted bg-soft-bg px-2 py-1 rounded-full">Low</span></li>
                         </ul>
                     </Card>
                     <Card>
-                         <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-4">Quick Actions</h3>
+                         <h3 className="text-lg font-bold text-ink mb-4">Quick Actions</h3>
                          <div className="space-y-3">
+                            <QuickAction 
+                                title="Capture a lead" 
+                                description="Score a comment as Hot / Warm / Cold"
+                                onClick={() => setCurrentView('automation')}
+                                tint="bg-soft-mint text-soft-deep"
+                                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
+                            />
                             <QuickAction 
                                 title="Creative Lab" 
                                 description="Launch the GenAI Content Studio"
                                 onClick={() => setCurrentView('lab')}
-                                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-brand-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>}
-                            />
-                             <QuickAction 
-                                title="Ask AI Assistant" 
-                                description="Query for marketing intelligence"
-                                onClick={() => setCurrentView('chat')}
-                                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-brand-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>}
+                                tint="bg-soft-sky text-soft-azure"
+                                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>}
                             />
                          </div>
                     </Card>
