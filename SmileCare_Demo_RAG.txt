@@ -1,0 +1,165 @@
+# SmileCare Dental — Approved Business Knowledge (Demo RAG)
+# Status: APPROVED | Version: 1.0 | Location: Baner, Pune
+# Use this document for Lead Agent / WhatsApp / Instagram demo answers.
+# Agent must NOT invent prices or policies outside this file.
+
+## BUSINESS IDENTITY
+Business name: SmileCare Dental
+Tagline: Healthy smiles, honest care.
+Type: Multi-specialty dental clinic
+Primary location: Shop 12, Near Baner Balewadi Road, Baner, Pune, Maharashtra 411045
+Secondary note: Single clinic location only (no branches yet).
+Phone: +91 98765 43210
+WhatsApp: +91 98765 43210
+Email: care@smilecare-demo.example
+Website: www.smilecare-demo.example
+Google Business Profile: SmileCare Dental Baner
+
+## HOURS
+Monday–Saturday: 10:00 AM – 8:00 PM
+Sunday: 10:00 AM – 2:00 PM (emergency consults only; treatment subject to dentist availability)
+Closed: Public holidays (Diwali, Holi, Republic Day, Independence Day) unless emergency board is on.
+After-hours: Leave a WhatsApp message; team replies next working morning. Do NOT promise same-night treatment unless a dentist confirms.
+
+## BRAND VOICE
+Friendly, professional, concise. Empathetic about pain/anxiety. Never diagnose over chat. Never guarantee treatment outcomes. Prefer clarification or human handoff over guessing.
+
+## APPROVED SERVICES AND PRICING (INR)
+All prices are starting prices for standard cases. Final quote after clinical examination.
+Currency: Indian Rupees (₹). GST as applicable.
+
+1) Premium Dental Check-up (consultation + basic oral exam)
+   Price: ₹999
+   Includes: Dentist consult, oral examination, basic treatment plan discussion
+   Duration: ~30 minutes
+   CTA: Book consultation
+
+2) Teeth Cleaning / Scaling & Polishing
+   Price: ₹1,499 – ₹2,499 depending on tartar level
+   Duration: 45–60 minutes
+
+3) Teeth Whitening (in-clinic)
+   Price: ₹8,999 (single session package)
+   Not suitable for: pregnant patients without dentist approval; severe enamel issues
+
+4) Tooth Filling (composite)
+   Price: ₹1,200 – ₹2,500 per tooth
+
+5) Root Canal Treatment (RCT) — single tooth
+   Price: ₹4,999 – ₹8,999 depending on tooth type and complexity
+   May require 1–3 visits
+
+6) Dental Crown
+   Price: ₹6,999 – ₹14,999 depending on material (metal-ceramic / zirconia)
+
+7) Tooth Extraction (simple)
+   Price: ₹999 – ₹2,499
+   Surgical extraction: quoted after exam
+
+8) Dental Implant (single tooth) — DEMO APPROVED RANGE
+   Price: ₹25,000 – ₹45,000 per implant (implant + abutment; crown often separate)
+   Includes: consultation, implant planning discussion
+   Does NOT include: complex bone graft unless quoted separately
+   Timeline: typically multi-visit over several weeks/months
+   IMPORTANT: Agent must NOT give medical diagnosis. For implant interest, collect urgency + preferred date + budget range, then offer consult booking.
+
+9) Braces / Orthodontic consult
+   Consult: ₹999
+   Full treatment plan: provided only after ortho evaluation (not quoted in chat)
+
+10) Pediatric dental consult
+    Price: ₹799
+    Child-friendly slots: weekdays 4:00 PM – 7:00 PM preferred
+
+## ACTIVE OFFER (VALID)
+Offer name: Premium Check-up Offer
+Price: ₹999 (same as list)
+Validity: Until 31 December 2026
+Rules: One offer per new patient; cannot combine with other discounts unless front desk approves.
+Agent MUST NOT invent extra discounts (no “20% off”, no matching competitor price).
+
+## FAQ — APPROVED ANSWERS
+
+Q: How much is your premium package / premium check-up?
+A: Our Premium Dental Check-up is ₹999. It includes a dentist consultation, oral examination, and a basic treatment plan discussion. Would you like me to help you book a slot?
+
+Q: Do you provide home consultation?
+A: We do not provide home consultation at this time. All examinations are at our Baner clinic. We can help you book a convenient clinic slot.
+
+Q: Where are you located?
+A: We are at Shop 12, Near Baner Balewadi Road, Baner, Pune 411045. Parking is available on the side street. Shall I share directions on WhatsApp?
+
+Q: Are you open on Sunday?
+A: Yes, Sunday 10:00 AM – 2:00 PM for emergency consults. Routine treatments depend on dentist availability. What day works better for you?
+
+Q: Do you take walk-ins?
+A: Walk-ins are welcome for check-ups if slots are free, but appointments are recommended to avoid waiting. I can help check preference for morning or evening.
+
+Q: Do you accept insurance / cashless?
+A: We support reimbursement paperwork for many dental insurance policies. Cashless availability depends on your insurer and plan — our front desk confirms after you share insurer details. We accept UPI, cards, and cash.
+
+Q: Is treatment painful? / Will implant hurt?
+A: We use local anesthesia for procedures when needed and focus on patient comfort. Exact experience varies by person and procedure — the dentist will explain what to expect during your consult. We do not diagnose or promise pain-free outcomes over chat.
+
+Q: How long does a root canal take?
+A: A single-tooth RCT usually needs 1–3 visits depending on complexity. The dentist confirms after examination.
+
+Q: Can I come Saturday?
+A: Saturday we are open 10:00 AM – 8:00 PM. Please share a preferred time window (morning / afternoon / evening) and your name + phone so the team can confirm a slot.
+
+Q: Do you treat kids?
+A: Yes — pediatric consults start at ₹799. Evening weekday slots (4–7 PM) are preferred for children.
+
+## QUALIFICATION FIELDS (ASK ONLY AS NEEDED)
+For booking / purchase intent, collect minimum necessary:
+- Name
+- Phone (WhatsApp preferred)
+- Service interest (check-up / cleaning / implant / RCT / other)
+- Preferred date or time window
+- Urgency (pain / emergency / elective)
+- Location / able to visit Baner? (yes/no)
+- Budget range only if customer asks about higher-ticket items (implant/ortho)
+
+Do NOT ask for: date of birth, Aadhaar, full home address, or medical history dumps in first messages.
+Do NOT invent clinical advice.
+
+## POLICIES
+1) No diagnosis through chat — chat supports information, FAQs, and booking help only.
+2) Pricing in this document is approved. Anything outside → say you will connect the team.
+3) No unauthorized discounts or price negotiation in chat → hand off to human.
+4) Refunds/cancellations: appointment can be rescheduled with 4+ hours notice. Refund of paid treatment packages only per clinic policy after review — always hand off refund disputes.
+5) Complaints / “speak to manager” → pause AI and hand off to human with full transcript.
+6) Opt-out: if customer says stop/unsubscribe, acknowledge and stop marketing follow-ups.
+
+## LEAD CAPTURE RULES (FOR THIS DEMO)
+Create / update a lead when customer:
+- Asks price and wants to proceed / book
+- Requests callback or appointment
+- Shares phone/name in a commercial conversation
+- Asks for implant / RCT / whitening with clear interest
+
+Do NOT create a lead for:
+- “Nice post!” / emoji praise only
+- Generic compliments with no question
+
+## SAMPLE NEXT BEST ACTIONS (INTERNAL — NEVER TELL SCORE TO CUSTOMER)
+- Price ask → Answer ₹ from this doc → ask if they want to book
+- Booking intent → Ask name + phone + preferred time
+- Implant interest → Offer consult; do not finalize medical plan in chat
+- Complaint → Human takeover
+- Missing info (e.g. treatment XZ-17 not in this doc) → Do not guess → hand off
+
+## UNKNOWN / OUT OF SCOPE EXAMPLES
+If asked about services not listed (e.g. “XZ-17 treatment”, “hair transplant”, “home bleaching kit delivery nationwide”):
+Respond: “I don’t have approved information on that. I’ll connect you with our team so they can help accurately.”
+Then hand off.
+
+## DEMO CONVERSATION TARGETS
+Happy path:
+1) “How much is your premium package?” → ₹999 Premium Check-up
+2) “Can I come Saturday?” → Ask name + phone + time window; capture lead
+3) Dashboard shows intent BOOKING_INTENT / PRICE_QUERY with score factors
+
+Guardrail path:
+1) “Give me 20% off” → No invented discount → human handoff
+2) “I paid and nobody helped, I want the manager” → complaint handoff, AI pause

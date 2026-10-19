@@ -101,9 +101,9 @@ const Campaigns: React.FC<CampaignsProps> = ({ openLinkedInHub }) => {
                             className="w-full bg-soft-bg border border-transparent rounded-2xl py-2.5 px-4 text-ink focus:outline-none focus:ring-4 focus:ring-soft-sky/60 focus:bg-white transition-all"
                         />
                     </div>
-                    <button type="submit" disabled={isLoading} className="nexora-btn-primary w-full py-3.5 px-4 text-sm flex items-center justify-center gap-2">
-                        {isLoading ? <Spinner /> : 'Generate Campaign Plan'}
-                    </button>
+                        <button type="submit" disabled={isLoading} className="nexora-btn-primary w-full py-3.5 px-4 text-sm flex items-center justify-center gap-2">
+                            {isLoading ? (<><Spinner /> Building plan (20–40s)…</>) : 'Generate Campaign Plan'}
+                        </button>
                 </form>
             </Card>
 

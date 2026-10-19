@@ -16,11 +16,41 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET === 'your-fallback-secret-key' || JWT_SECRET === 'nexora-dev-secret') {
+    if (IS_PROD) {
+        console.error('[Fatal] Set a strong JWT_SECRET in production.');
+        process.exit(1);
+    }
+    console.warn('[Auth] Using insecure development JWT_SECRET — set JWT_SECRET before production.');
+}
+const EFFECTIVE_JWT_SECRET = JWT_SECRET || 'nexora-dev-only-change-me';
+
 // MongoDB Connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/nexora';
+const REQUIRE_MONGO = process.env.REQUIRE_MONGO === 'true';
+
 mongoose.connect(MONGODB_URI)
     .then(() => console.log('Connected to MongoDB'))
-    .catch(err => console.error('MongoDB connection error:', err));
+    .catch(err => {
+        console.error('MongoDB connection error:', err.message);
+        if (REQUIRE_MONGO) {
+            console.error('[Fatal] MongoDB is required (REQUIRE_MONGO=true).');
+            process.exit(1);
+        }
+        if (IS_PROD) {
+            console.warn('[Mongo] Running without Mongo — LinkedIn scheduler/history unavailable; CRM uses file store.');
+        }
+    });
+
+if (REQUIRE_MONGO) {
+    setTimeout(() => {
+        if (mongoose.connection.readyState !== 1) {
+            console.error('[Fatal] MongoDB not connected within timeout.');
+            process.exit(1);
+        }
+    }, 15000);
+}
 
 // Models
 const AccountSchema = new mongoose.Schema({
@@ -59,18 +89,35 @@ const Post = mongoose.model('Post', PostSchema);
 const CLIENT_ID = process.env.LINKEDIN_CLIENT_ID;
 const CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET;
 const REDIRECT_URI = process.env.LINKEDIN_REDIRECT_URI;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-fallback-secret-key';
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
 
-const allowedOrigins = [
-    'https://linked-in-schedular-v1.vercel.app',
-    'http://localhost:3000',
-    process.env.FRONTEND_URL
-].filter(Boolean);
+const allowedOrigins = IS_PROD
+    ? [FRONTEND_URL].filter(Boolean)
+    : [
+        FRONTEND_URL,
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+        'https://localhost:3000',
+        'https://127.0.0.1:3000',
+      ].filter(Boolean);
 
+const appAuth = require('./appAuth');
+
+app.set('trust proxy', 1);
 app.use(cookieParser());
 app.use(cors({
     origin: function (origin, callback) {
-        if (!origin || allowedOrigins.includes(origin)) {
+        if (IS_PROD) {
+            if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+            return callback(new Error('Not allowed by CORS'));
+        }
+        if (
+            !origin ||
+            allowedOrigins.includes(origin) ||
+            /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)
+        ) {
             callback(null, true);
         } else {
             callback(new Error('Not allowed by CORS'));
@@ -79,20 +126,33 @@ app.use(cors({
     credentials: true
 }));
 console.log('CORS Allowed Origins:', allowedOrigins);
-app.use(express.json({ limit: '50mb' }));
-app.use(morgan('dev'));
+app.use(express.json({ limit: IS_PROD ? '2mb' : '12mb' }));
+app.use(morgan(IS_PROD ? 'combined' : 'dev'));
 
-// Auth Middleware
+appAuth.mountRoutes(app, { jwtSecret: EFFECTIVE_JWT_SECRET });
+void appAuth.bootstrapAdmin().catch((err) => {
+    console.error('[Auth] bootstrap failed:', err.message);
+    if (IS_PROD) process.exit(1);
+});
+
+const requireApp = appAuth.requireAppAuth(EFFECTIVE_JWT_SECRET);
+const loginLimiter = appAuth.rateLimit({ windowMs: 15 * 60_000, max: 40, key: 'login' });
+const aiLimiter = appAuth.rateLimit({ windowMs: 60_000, max: IS_PROD ? 30 : 120, key: 'ai' });
+
+app.use('/api/app/login', loginLimiter);
+app.use('/api/app/register', loginLimiter);
+
+// LinkedIn Auth Middleware (LinkedIn OAuth cookie — separate from app session)
 const authenticateToken = (req, res, next) => {
     const token = req.cookies.token;
-    if (!token) return res.status(401).json({ error: 'Access denied' });
+    if (!token) return res.status(401).json({ error: 'Connect LinkedIn first' });
 
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
+        const decoded = jwt.verify(token, EFFECTIVE_JWT_SECRET);
         req.userUrn = decoded.urn;
         next();
     } catch (err) {
-        res.status(403).json({ error: 'Invalid token' });
+        res.status(403).json({ error: 'Invalid LinkedIn session' });
     }
 };
 
@@ -152,30 +212,32 @@ app.get('/auth/linkedin/callback', async (req, res) => {
         // Deactivate others
         // (REMOVED: This was causing session leakage in multi-user environments)
 
-        // Generate JWT
-        const token = jwt.sign({ urn: personUrn }, JWT_SECRET, { expiresIn: '7d' });
+        // Generate JWT (LinkedIn identity — same secret, different payload shape)
+        const token = jwt.sign({ urn: personUrn }, EFFECTIVE_JWT_SECRET, { expiresIn: '7d' });
 
-        // Set Cookie (Lax + non-secure for local Vite proxy; None + secure in production)
+        // Set Cookie (Lax + non-secure for local Vite proxy; secure in production)
         res.cookie('token', token, {
             httpOnly: true,
             secure: IS_PROD,
-            sameSite: IS_PROD ? 'None' : 'Lax',
+            sameSite: IS_PROD ? 'lax' : 'Lax',
             maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
         });
 
+        const targetOrigin = JSON.stringify(FRONTEND_URL);
         res.send(`
             <script>
-                window.opener.postMessage({ type: 'LINKEDIN_AUTH_SUCCESS', user: ${JSON.stringify(userData)} }, "*");
+                window.opener.postMessage({ type: 'LINKEDIN_AUTH_SUCCESS', user: ${JSON.stringify(userData)} }, ${targetOrigin});
                 window.close();
             </script>
         `);
     } catch (error) {
         console.error('LinkedIn Auth Error:', error.response?.data || error.message);
-        res.send(`<script>window.opener.postMessage({ type: 'LINKEDIN_AUTH_ERROR' }, "*"); window.close();</script>`);
+        const targetOrigin = JSON.stringify(FRONTEND_URL);
+        res.send(`<script>window.opener.postMessage({ type: 'LINKEDIN_AUTH_ERROR' }, ${targetOrigin}); window.close();</script>`);
     }
 });
 
-app.get('/api/auth/status', authenticateToken, async (req, res) => {
+app.get('/api/auth/status', requireApp, authenticateToken, async (req, res) => {
     try {
         const urn = req.userUrn;
         const account = await Account.findOne({ urn });
@@ -190,7 +252,7 @@ app.get('/api/auth/status', authenticateToken, async (req, res) => {
     }
 });
 
-app.get('/api/auth/accounts', authenticateToken, async (req, res) => {
+app.get('/api/auth/accounts', requireApp, authenticateToken, async (req, res) => {
     try {
         // In a true multi-user system, we might only allow switching within related accounts,
         // but for now, we'll return all for the authenticated user (though LinkedIn only has one per login)
@@ -201,7 +263,7 @@ app.get('/api/auth/accounts', authenticateToken, async (req, res) => {
     }
 });
 
-app.post('/api/auth/switch', async (req, res) => {
+app.post('/api/auth/switch', requireApp, authenticateToken, async (req, res) => {
     try {
         const { urn } = req.body;
         const account = await Account.findOne({ urn });
@@ -229,7 +291,7 @@ app.post('/api/auth/logout', (req, res) => {
 
 // --- History & Schedule Sync ---
 
-app.get('/api/history', authenticateToken, async (req, res) => {
+app.get('/api/history', requireApp, authenticateToken, async (req, res) => {
     try {
         const urn = req.userUrn;
         const history = await Post.find({ userUrn: urn }).sort({ scheduledAt: -1 });
@@ -239,7 +301,7 @@ app.get('/api/history', authenticateToken, async (req, res) => {
     }
 });
 
-app.post('/api/history/sync', authenticateToken, async (req, res) => {
+app.post('/api/history/sync', requireApp, authenticateToken, async (req, res) => {
     try {
         const urn = req.userUrn;
         const { history } = req.body;
@@ -362,7 +424,7 @@ async function performPublish(post, targetUrn) {
 const publishers = require('./publishers');
 publishers.serveMedia(app);
 
-app.post('/api/publish/linkedin', authenticateToken, async (req, res) => {
+app.post('/api/publish/linkedin', requireApp, authenticateToken, async (req, res) => {
     const { headline, content, imageUrl, hashtags, platforms } = req.body;
     const targetUrn = req.userUrn;
 
@@ -385,7 +447,7 @@ app.post('/api/publish/linkedin', authenticateToken, async (req, res) => {
     }
 });
 
-app.post('/api/publish', authenticateToken, async (req, res) => {
+app.post('/api/publish', requireApp, authenticateToken, async (req, res) => {
     const { headline, content, imageUrl, hashtags, platforms } = req.body;
     try {
         const result = await publishers.publishPostToPlatforms(
@@ -401,6 +463,7 @@ app.post('/api/publish', authenticateToken, async (req, res) => {
 
 // --- Background Job ---
 setInterval(async () => {
+    if (mongoose.connection.readyState !== 1) return; // skip while Mongo is down
     const now = new Date();
     try {
         const pendingPosts = await Post.find({
@@ -437,20 +500,16 @@ setInterval(async () => {
     }
 }, 30000); // Check every 30 seconds
 
-app.post('/api/ai/insights', async (req, res) => {
+app.post('/api/ai/insights', requireApp, aiLimiter, async (req, res) => {
     try {
         const vertex = require('./vertexAi');
         const result = await vertex.generateInsights(req.body.posts || []);
         res.json(result);
     } catch (error) {
         console.error('[Vertex] insights error:', error.message);
-        res.json({
-            summary: "Your strategy looks solid! Keep posting consistently to build authority.",
-            tips: [
-                "Consistent posting builds 3x more trust",
-                "Engage with comments in the first hour",
-                "Mix educational content with personal stories"
-            ]
+        res.status(503).json({
+            success: false,
+            error: error.message || 'Insights unavailable',
         });
     }
 });
@@ -468,18 +527,18 @@ const wrapAi = (handler) => async (req, res) => {
     }
 };
 
-app.get('/api/ai/status', (_req, res) => {
+app.get('/api/ai/status', requireApp, (_req, res) => {
     res.json(vertex.getStatus());
 });
 
-app.post('/api/ai/content-ideas', wrapAi((req) => vertex.generateContentIdeas(req.body.details || req.body)));
-app.post('/api/ai/image', wrapAi(async (req) => ({ imageUrl: await vertex.generateImage(req.body.prompt || '') })));
-app.post('/api/ai/video', wrapAi(async (req) => ({
+app.post('/api/ai/content-ideas', requireApp, aiLimiter, wrapAi((req) => vertex.generateContentIdeas(req.body.details || req.body)));
+app.post('/api/ai/image', requireApp, aiLimiter, wrapAi(async (req) => ({ imageUrl: await vertex.generateImage(req.body.prompt || '') })));
+app.post('/api/ai/video', requireApp, aiLimiter, wrapAi(async (req) => ({
     videoUrl: await vertex.generatePromoVideo(req.body.textPrompt || '', req.body.imagePrompt || '')
 })));
-app.post('/api/ai/chat', wrapAi((req) => vertex.chatWithCopilot(req.body.history || [], req.body.message || '')));
-app.post('/api/ai/social-reply', wrapAi((req) => vertex.generateSocialReply(req.body.details || req.body)));
-app.post('/api/ai/product-showcase', wrapAi(async (req) => {
+app.post('/api/ai/chat', requireApp, aiLimiter, wrapAi((req) => vertex.chatWithCopilot(req.body.history || [], req.body.message || '')));
+app.post('/api/ai/social-reply', requireApp, aiLimiter, wrapAi((req) => vertex.generateSocialReply(req.body.details || req.body)));
+app.post('/api/ai/product-showcase', requireApp, aiLimiter, wrapAi(async (req) => {
     const showcase = await vertex.generateProductShowcase(req.body.productName || '');
     let imageUrl = null;
     try {
@@ -489,31 +548,87 @@ app.post('/api/ai/product-showcase', wrapAi(async (req) => {
     }
     return { ...showcase, imageUrl };
 }));
-app.post('/api/ai/campaign-plan', wrapAi((req) => vertex.generateCampaignPlan(req.body.brief || '')));
-app.post('/api/ai/linkedin/posts', wrapAi((req) => vertex.generateLinkedInPosts(req.body)));
-app.post('/api/ai/linkedin/image', wrapAi(async (req) => ({
+app.post('/api/ai/campaign-plan', requireApp, aiLimiter, wrapAi((req) => vertex.generateCampaignPlan(req.body.brief || '')));
+app.post('/api/ai/linkedin/posts', requireApp, aiLimiter, wrapAi((req) => vertex.generateLinkedInPosts(req.body)));
+app.post('/api/ai/linkedin/image', requireApp, aiLimiter, wrapAi(async (req) => ({
     imageUrl: await vertex.generateLinkedInImage(req.body.imagePrompt || '')
 })));
 
-// --- Instagram Graph API (lead gen from comments) ---
-const instagram = require('./instagram');
-instagram.mountRoutes(app, { vertex });
+// --- Unified Leads CRM ---
+const leadsCrm = require('./leadsCrm');
+leadsCrm.mountRoutes(app, { requireAuth: requireApp });
 
-app.get('/', (req, res) => {
-    res.send('<h1>Nexora API</h1><p>LinkedIn scheduler + Instagram leads + Vertex AI backend is running.</p>');
-});
+// --- Company knowledge / brand voice (Admin Console) ---
+const companyKnowledge = require('./companyKnowledge');
+companyKnowledge.mountRoutes(app, { requireAuth: requireApp, vertex });
+
+// --- Instagram Graph API (comments + DMs) ---
+const instagram = require('./instagram');
+
+// --- RAG lead agent (human-like, knowledge-limited, email handoff) ---
+const leadAgent = require('./leadAgent');
+leadAgent.mountRoutes(app, { vertex, requireAuth: requireApp, aiLimiter });
+
+instagram.mountRoutes(app, { vertex, leadAgent, requireAuth: requireApp });
+
+// --- WhatsApp Cloud API ---
+const whatsapp = require('./whatsapp');
+whatsapp.mountRoutes(app, { vertex, leadAgent, requireAuth: requireApp });
+
+// --- Facebook Page (publish + comment leads) ---
+const facebook = require('./facebook');
+facebook.mountRoutes(app, { vertex, requireAuth: requireApp });
+
+// --- Dual agents: Competitor Intelligence + Lead Growth ---
+const competitorAgent = require('./competitorAgent');
+const leadGrowthAgent = require('./leadGrowthAgent');
+competitorAgent.mountRoutes(app, { vertex, requireAuth: requireApp, aiLimiter });
+leadGrowthAgent.mountRoutes(app, { vertex, requireAuth: requireApp, aiLimiter });
+
+leadsCrm.setReplyDeps({ whatsapp, instagram });
 
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
         server: 'Nexora Backend',
+        env: IS_PROD ? 'production' : 'development',
         vertex: vertex.getStatus(),
         instagram: instagram.getStatus(),
+        facebook: facebook.getStatus(),
+        whatsapp: whatsapp.getStatus(),
+        leadsCrm: { mongo: leadsCrm.mongoReady() },
+        company: companyKnowledge.getStatus(),
+        mongo: mongoose.connection.readyState === 1,
+        leadAgent: {
+            handoffEmail: leadAgent.HANDOFF_EMAIL,
+        },
     });
 });
 
+// Serve built SPA in production (or whenever dist exists)
+const distDir = path.join(__dirname, '..', 'dist');
+if (fs.existsSync(distDir)) {
+    app.use(express.static(distDir, { index: false, maxAge: IS_PROD ? '1h' : 0 }));
+    app.get('*', (req, res, next) => {
+        if (
+            req.path.startsWith('/api') ||
+            req.path.startsWith('/auth') ||
+            req.path.startsWith('/media')
+        ) {
+            return next();
+        }
+        res.sendFile(path.join(distDir, 'index.html'), (err) => {
+            if (err) next();
+        });
+    });
+} else {
+    app.get('/', (_req, res) => {
+        res.send('<h1>Nexora API</h1><p>API is running. Build the UI with <code>npm run build</code> to serve the SPA from this process.</p>');
+    });
+}
+
 app.listen(PORT, () => {
-    console.log(`Nexora backend running on http://localhost:${PORT}`);
+    console.log(`Nexora backend running on http://localhost:${PORT} (${IS_PROD ? 'production' : 'development'})`);
     try {
         console.log('[Vertex] status:', JSON.stringify(vertex.getStatus()));
     } catch (e) {
@@ -523,5 +638,15 @@ app.listen(PORT, () => {
         console.log('[Instagram] status:', JSON.stringify(instagram.getStatus()));
     } catch (e) {
         console.warn('[Instagram] not ready:', e.message);
+    }
+    try {
+        console.log('[WhatsApp] status:', JSON.stringify(whatsapp.getStatus()));
+    } catch (e) {
+        console.warn('[WhatsApp] not ready:', e.message);
+    }
+    try {
+        console.log('[Facebook] status:', JSON.stringify(facebook.getStatus()));
+    } catch (e) {
+        console.warn('[Facebook] not ready:', e.message);
     }
 });

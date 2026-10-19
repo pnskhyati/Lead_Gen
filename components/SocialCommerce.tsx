@@ -7,6 +7,7 @@ import Spinner from './common/Spinner';
 import Card from './common/Card';
 import LeadBadge from './common/LeadBadge';
 import InstagramConnect from './InstagramConnect';
+import FacebookConnect from './FacebookConnect';
 
 const Label: React.FC<{ htmlFor: string; children: React.ReactNode }> = ({ htmlFor, children }) => (
     <label htmlFor={htmlFor} className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{children}</label>
@@ -86,8 +87,9 @@ const SocialCommerce: React.FC = () => {
             <div>
                 <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-1">Lead Automation</h1>
                 <p className="text-slate-500 dark:text-slate-400 mb-6">Score Instagram comments (Graph API) or paste a message as Hot / Warm / Cold.</p>
-                <div className="mb-5">
+                <div className="mb-5 space-y-4">
                     <InstagramConnect />
+                    <FacebookConnect />
                 </div>
                 <Card>
                     <form onSubmit={handleSubmit} className="space-y-4">

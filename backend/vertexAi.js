@@ -47,6 +47,18 @@ function extractText(response) {
   return (textPart?.text || '').trim();
 }
 
+function getCompanyVoice(opts) {
+  try {
+    const ck = require('./companyKnowledge');
+    if (opts && (opts.voiceMode || opts.tone || opts.customTone)) {
+      return ck.getVoiceForGeneration(opts);
+    }
+    return ck.buildVoiceInstruction();
+  } catch {
+    return '';
+  }
+}
+
 function extractImageDataUrl(response) {
   const parts = response?.candidates?.[0]?.content?.parts || [];
   for (const part of parts) {
@@ -174,14 +186,23 @@ async function generateContentIdeas(details) {
       ? `For the 'captions' field, generate 3 complete, professional LinkedIn posts.`
       : `For the 'captions' field, generate 3 concise captions for ${details.platform}.`;
 
-  const prompt = `You are an expert marketing content creator for Nexora.
+  const voice = getCompanyVoice({
+    voiceMode: details.voiceMode || 'company',
+    tone: details.tone,
+    customTone: details.customTone,
+  });
+
+  const prompt = `You are an expert marketing content creator.
+${voice}
+
 Campaign Details:
 - Product: ${details.product}
 - Goal: ${details.goal}
 - Target Audience: ${details.audience}
 - Platform: ${details.platform}
-- Tone of Voice: ${details.tone}
 ${platformInstruction}
+
+CRITICAL: Every caption must follow the WRITING / COMPANY BRAND VOICE block above.
 Also provide 2 imagePrompts and a short videoScript.`;
 
   return generateJson(prompt, contentGenerationSchema);
@@ -219,12 +240,20 @@ const socialReplySchema = {
 };
 
 async function generateSocialReply(details) {
-  const prompt = `You are a Social Media + Lead Gen Manager for Nexora (premium spirits brand).
+  const voice = getCompanyVoice({
+    voiceMode: details.voiceMode || 'company',
+    tone: details.tone,
+    customTone: details.customTone,
+  });
+
+  const prompt = `You are a Social Media + Lead Gen Manager.
+${voice}
+
 Customer comment / DM on ${details.platform}:
 """${details.customerComment}"""
 
-1) Craft a helpful brand reply.
-2) Recommend a product, image prompt, and 3 cocktail recipes.
+1) Craft a helpful brand reply that STRICTLY matches the voice block above.
+2) Recommend a product, image prompt, and 3 cocktail recipes (or relevant serves).
 3) Score this as a sales lead for lead generation:
    - leadTemperature: "hot" = clear buy/try intent, asking where to buy, price, availability, ready to purchase soon;
      "warm" = interested / comparing / asking for suggestions but not ready yet;
@@ -305,15 +334,21 @@ const campaignPlanSchema = {
 };
 
 async function generateCampaignPlan(brief) {
-  const prompt = `You are a marketing strategist for Nexora. Brief: "${brief}".
-Build a full digital campaign plan (title, slogan, personas, messaging pillars, 3-phase rollout, KPIs).`;
+  const prompt = `You are a marketing strategist.
+${getCompanyVoice()}
+
+Brief: "${brief}".
+Build a full digital campaign plan (title, slogan, personas, messaging pillars, 3-phase rollout, KPIs) in the company brand voice.`;
   return generateJson(prompt, campaignPlanSchema);
 }
 
 async function chatWithCopilot(history, newMessage) {
   const ai = getClient();
-  const systemInstruction = `You are "Catalyst AI," an elite marketing intelligence assistant for Nexora.
-Give precise, structured answers. For comparisons, include clear Markdown analysis.
+  const systemInstruction = `You are "Catalyst AI," an elite marketing intelligence assistant.
+${getCompanyVoice()}
+
+Give precise, structured answers that match the company voice above.
+For comparisons, include clear Markdown analysis.
 If useful, call displayChart with title + data [{name, value}].`;
 
   const displayChartFunctionDeclaration = {
@@ -370,7 +405,7 @@ If useful, call displayChart with title + data [{name, value}].`;
   return { textReply, sources: [], chartData };
 }
 
-async function generateLinkedInPosts({ sourceType, data, preferences, postCount }) {
+async function generateLinkedInPosts({ sourceType, data, preferences, postCount, voiceMode, customTone }) {
   const postSchema = {
     type: Type.ARRAY,
     items: {
@@ -385,8 +420,16 @@ async function generateLinkedInPosts({ sourceType, data, preferences, postCount 
     },
   };
 
+  const voice = getCompanyVoice({
+    voiceMode: voiceMode || preferences?.voiceMode || 'company',
+    tone: preferences?.tone,
+    customTone: customTone || preferences?.customTone,
+  });
+
   const systemInstruction = `You are a world-class LinkedIn growth strategist.
+${voice}
 Write posts with strong hooks, clear sections, and hashtags.
+CRITICAL: Match the voice block above on every post.
 Always include a detailed imagePrompt for an infographic (flowchart, mindmap, or comparison).`;
 
   const prompt =
@@ -437,6 +480,7 @@ function getStatus() {
 module.exports = {
   getStatus,
   generateText,
+  generateJson,
   generateImage,
   generatePromoVideo,
   generateContentIdeas,

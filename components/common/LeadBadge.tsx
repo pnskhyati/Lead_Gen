@@ -1,5 +1,5 @@
 import React from 'react';
-import type { LeadTemperature } from '../types';
+import type { LeadTemperature } from '../../types';
 
 const STYLES: Record<LeadTemperature, string> = {
   hot: 'bg-[#FFE8E3] text-soft-coral',

@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { View } from '../types';
+import { APP_INITIAL, APP_NAME } from '../constants/branding';
+import { getLeadCounts, getLeads } from '../services/leadStore';
 
 interface HeaderProps {
   onLogout: () => void;
@@ -8,27 +10,35 @@ interface HeaderProps {
 }
 
 const VIEW_LABELS: Record<View, string> = {
-  insights: 'Dashboard',
+  insights: 'Growth Radar',
   campaigns: 'Campaigns',
   lab: 'Creative Lab',
   linkedin: 'Social Hub',
-  automation: 'Leads',
+  automation: 'Lead Inbox',
   chat: 'AI Assistant',
+  admin: 'Admin Console',
 };
 
 const TOP_TABS: { view: View; label: string }[] = [
-  { view: 'insights', label: 'Dashboard' },
+  { view: 'insights', label: 'Radar' },
   { view: 'campaigns', label: 'Campaigns' },
-  { view: 'lab', label: 'Creative Lab' },
+  { view: 'lab', label: 'Lab' },
   { view: 'linkedin', label: 'Social' },
-  { view: 'chat', label: 'AI Chat' },
+  { view: 'automation', label: 'Leads' },
 ];
 
-const NotificationsDropdown: React.FC = () => {
+const NotificationsDropdown: React.FC<{ handoffs?: number; hot?: number }> = ({
+  handoffs = 0,
+  hot = 0,
+}) => {
   const notifications = [
-    { title: 'New report available: Q2 Sales Performance', time: '5 mins ago', tint: 'bg-soft-mint text-emerald-600' },
-    { title: "Campaign 'Summer Sips' needs approval", time: '1 hour ago', tint: 'bg-soft-mint text-soft-deep' },
-    { title: 'Mention detected on Instagram for Smirnoff', time: '3 hours ago', tint: 'bg-soft-sky text-soft-azure' },
+    hot > 0
+      ? { title: `${hot} hot lead${hot === 1 ? '' : 's'} need attention`, time: 'Live', tint: 'bg-soft-coral/20 text-soft-coral' }
+      : { title: 'No hot leads in queue', time: 'Live', tint: 'bg-soft-mint text-soft-deep' },
+    handoffs > 0
+      ? { title: `${handoffs} conversation${handoffs === 1 ? '' : 's'} awaiting human takeover`, time: 'Live', tint: 'bg-soft-coral/20 text-soft-coral' }
+      : { title: 'AI engagement active — no handoffs waiting', time: 'Live', tint: 'bg-soft-sky text-soft-azure' },
+    { title: 'Never miss another lead — run the demo checklist on Growth Radar', time: 'Tip', tint: 'bg-soft-mint text-soft-deep' },
   ];
 
   return (
@@ -59,6 +69,10 @@ const Header: React.FC<HeaderProps> = ({ onLogout, currentView = 'insights', set
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const notificationsRef = useRef<HTMLDivElement>(null);
+  const counts = getLeadCounts();
+  const handoffs = getLeads().filter(
+    (l) => l.status === 'handed_off' || l.conversationState === 'HUMAN_REQUIRED'
+  ).length;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -77,7 +91,7 @@ const Header: React.FC<HeaderProps> = ({ onLogout, currentView = 'insights', set
       <div className="bg-white/65 backdrop-blur-2xl border border-soft-sky/40 shadow-soft rounded-[1.75rem] px-4 sm:px-6 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-soft-azure">Nexora</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-soft-azure">{APP_NAME}</p>
             <h1 className="font-display text-2xl font-semibold text-ink truncate leading-tight">{VIEW_LABELS[currentView]}</h1>
           </div>
         </div>
@@ -110,8 +124,13 @@ const Header: React.FC<HeaderProps> = ({ onLogout, currentView = 'insights', set
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search…"
+              placeholder="Search leads…"
               className="nexora-input w-full py-2.5 pl-4 pr-11 text-sm text-ink placeholder:text-ink-muted"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && setCurrentView) {
+                  setCurrentView('automation');
+                }
+              }}
             />
             <button
               type="button"
@@ -136,17 +155,19 @@ const Header: React.FC<HeaderProps> = ({ onLogout, currentView = 'insights', set
               </svg>
               <span className="absolute top-2 right-2 block h-2 w-2 rounded-full bg-soft-coral ring-2 ring-white" />
             </button>
-            {isNotificationsOpen && <NotificationsDropdown />}
+            {isNotificationsOpen && (
+              <NotificationsDropdown handoffs={handoffs} hot={counts.hot} />
+            )}
           </div>
 
           <button
             type="button"
             onClick={onLogout}
             aria-label="Logout"
-            className="w-10 h-10 rounded-full overflow-hidden border-2 border-white shadow-soft bg-soft-sky flex items-center justify-center text-sm font-bold text-soft-deep hover:shadow-soft-hover hover:-translate-y-0.5 transition-all"
+            className="w-10 h-10 rounded-full overflow-hidden border-2 border-white shadow-soft bg-gradient-to-br from-soft-deep to-soft-azure flex items-center justify-center text-sm font-bold text-white hover:shadow-soft-hover hover:-translate-y-0.5 transition-all"
             title="Sign out"
           >
-            N
+            {APP_INITIAL}
           </button>
         </div>
       </div>

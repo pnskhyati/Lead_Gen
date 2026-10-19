@@ -1,6 +1,6 @@
 
 
-export type View = 'insights' | 'campaigns' | 'lab' | 'automation' | 'chat' | 'linkedin';
+export type View = 'insights' | 'campaigns' | 'lab' | 'automation' | 'chat' | 'linkedin' | 'agents' | 'admin';
 
 /** Draft posts handed from Creative Lab / Campaigns into LinkedIn Hub */
 export interface LinkedInDraft {
@@ -19,6 +19,17 @@ export interface CampaignDetails {
   audience: string;
   platform: string;
   tone: string;
+  /** company = saved brand voice; preset = dropdown; custom = freeform */
+  voiceMode?: 'company' | 'preset' | 'custom';
+  customTone?: string;
+}
+
+export interface SocialInteraction {
+  platform: string;
+  customerComment: string;
+  voiceMode?: 'company' | 'preset' | 'custom';
+  tone?: string;
+  customTone?: string;
 }
 
 export interface GeneratedContent {
@@ -35,7 +46,8 @@ export interface Source {
 export interface ChartData {
   title: string;
   data: { name: string; value: number }[];
-};
+  note?: string;
+}
 
 export interface ChatMessage {
   role: 'user' | 'model';
@@ -51,17 +63,20 @@ export interface CopilotResponse {
 }
 
 // Types for Social Commerce Engine
-export interface SocialInteraction {
-  platform: string;
-  customerComment: string;
-}
-
 export interface Recipe {
   name: string;
   ingredients: string[];
 }
 
 export type LeadTemperature = 'hot' | 'warm' | 'cold';
+export type LeadScoreBand = 'cold' | 'warm' | 'hot' | 'very_hot';
+export type ConversationState =
+  | 'AI_ACTIVE'
+  | 'AI_WAITING'
+  | 'HUMAN_REQUIRED'
+  | 'HUMAN_ACTIVE'
+  | 'AI_PAUSED'
+  | 'CLOSED';
 
 export interface SocialResponse {
   suggestedReply: string;
@@ -84,14 +99,46 @@ export interface Lead {
   temperature: LeadTemperature;
   score: number;
   intentSummary: string;
+  intent?: string | null;
+  intentConfidence?: number | null;
+  scoreBand?: LeadScoreBand | null;
+  nextBestAction?: string | null;
+  conversationState?: ConversationState;
+  scoreExplanation?: string | null;
+  scoringVersion?: string | null;
   recommendedProduct?: string;
   suggestedReply?: string;
-  status: 'new' | 'contacted' | 'qualified' | 'closed';
+  status: 'new' | 'contacted' | 'qualified' | 'closed' | 'handed_off';
   createdAt: string;
+  lastMessageAt?: string;
   externalId?: string;
-  source?: 'manual' | 'instagram' | string;
+  source?: 'manual' | 'instagram' | 'whatsapp' | 'web' | string;
+  channel?: 'web' | 'instagram' | 'facebook' | 'whatsapp' | 'manual';
   author?: string;
   mediaPermalink?: string;
+  phone?: string;
+  igScopedId?: string;
+  autoReplyPaused?: boolean;
+  handoffReason?: string;
+  handoffEmail?: string;
+}
+
+export interface LeadMessage {
+  id: string;
+  leadId: string;
+  role: 'customer' | 'agent' | 'human';
+  text: string;
+  channelMessageId?: string;
+  createdAt: string;
+}
+
+export interface LeadHandoffPackage {
+  email: string;
+  subject: string;
+  body: string;
+  waLink: string | null;
+  igLink: string | null;
+  transcript: string;
 }
 
 // Type for Product Showcase

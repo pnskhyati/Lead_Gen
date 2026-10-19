@@ -15,13 +15,17 @@ import { saveHistory, getHistory } from './dbService';
 import * as XLSX from 'xlsx';
 import type { LinkedInDraft } from '../types';
 import InstagramConnect from '../components/InstagramConnect';
+import FacebookConnect from '../components/FacebookConnect';
+import BrandVoiceField from '../components/common/BrandVoiceField';
 
 const INITIAL_PREFERENCES: ContentPreferences = {
   postType: 'Thought Leadership',
   tone: 'Professional',
   length: 'Medium',
   useEmojis: true,
-  includeCTA: true
+  includeCTA: true,
+  voiceMode: 'company',
+  customTone: '',
 };
 
 const ALL_PLATFORMS: { id: PublishPlatform; label: string; hint: string }[] = [
@@ -977,17 +981,28 @@ const LinkedInHub: React.FC<LinkedInHubProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold mb-2">Tone</label>
-                  <select
-                    value={data.preferences.tone}
-                    onChange={(e) => setData(prev => ({ ...prev, preferences: { ...prev.preferences, tone: e.target.value as any } }))}
-                    className="w-full p-3 border border-slate-200 rounded-lg outline-none"
-                  >
-                    <option>Professional</option>
-                    <option>Conversational</option>
-                    <option>Inspirational</option>
-                    <option>Bold</option>
-                  </select>
+                  <BrandVoiceField
+                    compact
+                    presets={['Professional', 'Conversational', 'Inspirational', 'Bold']}
+                    value={{
+                      voiceMode: data.preferences.voiceMode || 'company',
+                      tone: data.preferences.tone,
+                      customTone: data.preferences.customTone || '',
+                    }}
+                    onChange={(v) =>
+                      setData((prev) => ({
+                        ...prev,
+                        preferences: {
+                          ...prev.preferences,
+                          voiceMode: v.voiceMode,
+                          tone: (v.voiceMode === 'preset'
+                            ? v.tone
+                            : prev.preferences.tone) as any,
+                          customTone: v.customTone,
+                        },
+                      }))
+                    }
+                  />
                 </div>
               </div>
 
@@ -1129,9 +1144,8 @@ const LinkedInHub: React.FC<LinkedInHubProps> = ({
                   );
                 })}
               </div>
-              {(data.selectedPlatforms.includes('instagram') || data.selectedPlatforms.includes('facebook')) && (
-                <InstagramConnect compact />
-              )}
+              {data.selectedPlatforms.includes('instagram') && <InstagramConnect compact />}
+              {data.selectedPlatforms.includes('facebook') && <FacebookConnect compact />}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

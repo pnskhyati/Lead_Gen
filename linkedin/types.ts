@@ -29,6 +29,8 @@ export interface ContentPreferences {
   length: Length;
   useEmojis: boolean;
   includeCTA: boolean;
+  voiceMode?: 'company' | 'preset' | 'custom';
+  customTone?: string;
 }
 
 export interface PostInput {

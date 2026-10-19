@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { CAMPAIGN_GOALS, BRAND_PRODUCTS_BY_CATEGORY, PLATFORMS, TONES_OF_VOICE, AUDIENCE_SUGGESTIONS } from '../constants';
+import { CAMPAIGN_GOALS, BRAND_PRODUCTS_BY_CATEGORY, PLATFORMS, AUDIENCE_SUGGESTIONS } from '../constants';
 import type { CampaignDetails, GeneratedContent, LinkedInDraft } from '../types';
 import { generateContentIdeas, generateImage, generatePromoVideo, generateProductShowcase } from '../services/geminiService';
 import Spinner from './common/Spinner';
 import Card from './common/Card';
+import BrandVoiceField, { type BrandVoiceValue } from './common/BrandVoiceField';
 
 interface ContentStudioProps {
     openLinkedInHub?: (drafts?: LinkedInDraft[], brief?: string) => void;
@@ -37,7 +38,9 @@ const ContentStudio: React.FC<ContentStudioProps> = ({ openLinkedInHub }) => {
         goal: CAMPAIGN_GOALS[0],
         audience: AUDIENCE_SUGGESTIONS[PLATFORMS[0]],
         platform: PLATFORMS[0],
-        tone: TONES_OF_VOICE[0],
+        tone: 'Sophisticated & Premium',
+        voiceMode: 'company',
+        customTone: '',
     });
     const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
     const [generatedImages, setGeneratedImages] = useState<(string | null)[]>([]);
@@ -397,10 +400,21 @@ const ContentStudio: React.FC<ContentStudioProps> = ({ openLinkedInHub }) => {
                             </Select>
                         </div>
                         <div>
-                            <Label htmlFor="tone">Tone of Voice</Label>
-                            <Select id="tone" value={details.tone} onChange={handleInputChange}>
-                                {TONES_OF_VOICE.map(option => <option key={option} value={option}>{option}</option>)}
-                            </Select>
+                            <BrandVoiceField
+                                value={{
+                                    voiceMode: details.voiceMode || 'company',
+                                    tone: details.tone,
+                                    customTone: details.customTone || '',
+                                }}
+                                onChange={(v: BrandVoiceValue) =>
+                                    setDetails((prev) => ({
+                                        ...prev,
+                                        voiceMode: v.voiceMode,
+                                        tone: v.tone,
+                                        customTone: v.customTone,
+                                    }))
+                                }
+                            />
                         </div>
                         <div>
                             <Label htmlFor="audience">Target Audience</Label>

@@ -6,6 +6,8 @@ import Spinner from './Spinner';
 interface ChartProps {
   chartData: ChartData | null;
   isLoading?: boolean;
+  /** Fit inside small containers (e.g. floating chat) without overflowing */
+  compact?: boolean;
 }
 
 type ChartType = 'bar' | 'line';
@@ -14,7 +16,7 @@ type DateRange = '7D' | '30D' | '90D' | 'ALL';
 const ToggleButton: React.FC<{ label: string; isActive: boolean; onClick: () => void; }> = ({ label, isActive, onClick }) => (
   <button
     onClick={onClick}
-    className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-all ${
+    className={`px-2.5 py-1 text-[10px] font-semibold rounded-full transition-all ${
       isActive
         ? 'bg-gradient-to-r from-soft-deep to-soft-azure text-white shadow-aqua'
         : 'text-ink-muted hover:text-ink hover:bg-white/90 hover:shadow-sm'
@@ -24,7 +26,7 @@ const ToggleButton: React.FC<{ label: string; isActive: boolean; onClick: () => 
   </button>
 );
 
-const Chart: React.FC<ChartProps> = ({ chartData, isLoading = false }) => {
+const Chart: React.FC<ChartProps> = ({ chartData, isLoading = false, compact = false }) => {
   const [chartType, setChartType] = useState<ChartType>('line');
   const [dateRange, setDateRange] = useState<DateRange>('ALL');
 
@@ -39,6 +41,10 @@ const Chart: React.FC<ChartProps> = ({ chartData, isLoading = false }) => {
 
   const tickColor = '#6A8F93';
   const gridColor = '#D4EDEF';
+  const isCategoryAxis = useMemo(() => {
+    const sample = filteredData[0]?.name;
+    return Boolean(sample && isNaN(Date.parse(String(sample))));
+  }, [filteredData]);
 
   const tickFormatter = (dateStr: string) => {
     if (isNaN(Date.parse(dateStr))) {
@@ -57,7 +63,7 @@ const Chart: React.FC<ChartProps> = ({ chartData, isLoading = false }) => {
 
   if (isLoading) {
     return (
-      <div className="w-full h-80 flex flex-col items-center justify-center text-ink-muted">
+      <div className={`w-full flex flex-col items-center justify-center text-ink-muted ${compact ? 'h-full min-h-[120px]' : 'h-80'}`}>
         <Spinner />
         <p className="mt-2 text-sm font-medium">Loading chart…</p>
       </div>
@@ -65,7 +71,11 @@ const Chart: React.FC<ChartProps> = ({ chartData, isLoading = false }) => {
   }
 
   if (!chartData || !chartData.data || chartData.data.length === 0) {
-    return <div className="w-full h-80 flex items-center justify-center text-ink-muted text-sm">No data available to display chart.</div>;
+    return (
+      <div className={`w-full flex items-center justify-center text-ink-muted text-sm ${compact ? 'h-full min-h-[120px]' : 'h-80'}`}>
+        No data available to display chart.
+      </div>
+    );
   }
 
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -82,37 +92,42 @@ const Chart: React.FC<ChartProps> = ({ chartData, isLoading = false }) => {
 
   const commonXAxisProps = {
     dataKey: 'name' as const,
-    tick: { fill: tickColor, fontSize: 11 },
-    angle: -35,
+    tick: { fill: tickColor, fontSize: compact ? 9 : 11 },
+    angle: isCategoryAxis ? (compact ? -20 : -35) : (compact ? -25 : -35),
     textAnchor: 'end' as const,
-    height: 60,
-    interval: interval,
+    height: compact ? (isCategoryAxis ? 36 : 40) : 60,
+    interval: compact && filteredData.length <= 6 ? 0 : interval,
     tickFormatter: tickFormatter,
     axisLine: false,
     tickLine: false,
   };
 
   const commonYAxisProps = {
-    tick: { fill: tickColor, fontSize: 11 },
+    tick: { fill: tickColor, fontSize: compact ? 9 : 11 },
     tickFormatter: (value: number) => value.toLocaleString(),
     axisLine: false,
     tickLine: false,
+    width: compact ? 28 : undefined,
   };
+
+  const chartMargin = compact
+    ? { top: 4, right: 8, left: 0, bottom: 4 }
+    : { top: 5, right: 20, left: -10, bottom: 20 };
 
   const renderChart = () => {
     if (chartType === 'bar') {
       return (
-        <BarChart data={filteredData} margin={{ top: 5, right: 20, left: -10, bottom: 20 }}>
+        <BarChart data={filteredData} margin={chartMargin}>
           <CartesianGrid strokeDasharray="4 4" stroke={gridColor} vertical={false} />
           <XAxis {...commonXAxisProps} />
           <YAxis {...commonYAxisProps} />
           <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(13, 155, 166, 0.08)' }} />
-          <Bar dataKey="value" fill="#0D9BA6" radius={[10, 10, 10, 10]} barSize={28} />
+          <Bar dataKey="value" fill="#0D9BA6" radius={[10, 10, 10, 10]} barSize={compact ? 18 : 28} />
         </BarChart>
       );
     }
     return (
-      <AreaChart data={filteredData} margin={{ top: 5, right: 20, left: -10, bottom: 20 }}>
+      <AreaChart data={filteredData} margin={chartMargin}>
         <defs>
           <linearGradient id="nexoraArea" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#2BB8C0" stopOpacity={0.4} />
@@ -123,28 +138,34 @@ const Chart: React.FC<ChartProps> = ({ chartData, isLoading = false }) => {
         <XAxis {...commonXAxisProps} />
         <YAxis {...commonYAxisProps} />
         <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#0D9BA6', strokeWidth: 1 }} />
-        <Area type="monotone" dataKey="value" stroke="#0A6B73" strokeWidth={2.5} fill="url(#nexoraArea)" activeDot={{ r: 6, fill: '#0A6B73', stroke: '#fff', strokeWidth: 2 }} />
+        <Area type="monotone" dataKey="value" stroke="#0A6B73" strokeWidth={2.5} fill="url(#nexoraArea)" activeDot={{ r: compact ? 4 : 6, fill: '#0A6B73', stroke: '#fff', strokeWidth: 2 }} />
       </AreaChart>
     );
   };
 
   return (
-    <div className="w-full h-full min-h-[320px] flex flex-col">
-      <div className="flex justify-between items-center mb-4 gap-4 flex-wrap">
-        <h3 className="text-lg font-bold text-ink">{chartData.title}</h3>
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="inline-flex bg-soft-bg p-1 rounded-full">
+    <div className={`w-full flex flex-col overflow-hidden ${compact ? 'h-full min-h-0' : ''}`}>
+      <div className={`flex justify-between items-start gap-2 flex-wrap shrink-0 ${compact ? 'mb-2' : 'mb-4'}`}>
+        <div className="min-w-0">
+          <h3 className={`font-bold text-ink leading-tight ${compact ? 'text-xs' : 'text-lg'}`}>{chartData.title}</h3>
+          {chartData.note && !compact && (
+            <p className="text-[11px] text-ink-muted mt-1 font-medium">{chartData.note}</p>
+          )}
+        </div>
+        <div className={`flex items-center gap-2 flex-wrap ${compact ? 'w-full' : ''}`}>
+          <div className="inline-flex bg-soft-bg p-0.5 rounded-full">
             {(['7D', '30D', '90D', 'ALL'] as DateRange[]).map(range => (
               <ToggleButton key={range} label={range} isActive={dateRange === range} onClick={() => setDateRange(range)} />
             ))}
           </div>
-          <div className="inline-flex bg-soft-bg p-1 rounded-full">
+          <div className="inline-flex bg-soft-bg p-0.5 rounded-full">
             <ToggleButton label="Line" isActive={chartType === 'line'} onClick={() => setChartType('line')} />
             <ToggleButton label="Bar" isActive={chartType === 'bar'} onClick={() => setChartType('bar')} />
           </div>
         </div>
       </div>
-      <div className="flex-grow">
+      {/* Explicit height required — ResponsiveContainer collapses to 0 with only flex-grow */}
+      <div className={compact ? 'h-[160px] min-h-0 w-full' : 'h-72 w-full'}>
         <ResponsiveContainer width="100%" height="100%">
           {renderChart()}
         </ResponsiveContainer>

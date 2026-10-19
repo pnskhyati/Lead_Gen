@@ -11,18 +11,40 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-async function postAi<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(body),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || json.success === false) {
-    throw new Error(json.error || `Vertex AI request failed (${res.status})`);
+async function postAi<T>(path: string, body: unknown, retries = 1): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.success === false) {
+        throw new Error(json.error || `Vertex AI request failed (${res.status})`);
+      }
+      return (json.data ?? json) as T;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isNetwork =
+        message === 'Failed to fetch' ||
+        message.includes('NetworkError') ||
+        message.includes('ECONNREFUSED') ||
+        message.includes('Load failed');
+      lastError = new Error(
+        isNetwork
+          ? 'Cannot reach the Tecavy API. Make sure `npm run dev` is running (web + API on ports 3000/4000), then try again.'
+          : message
+      );
+      if (!isNetwork || attempt === retries) break;
+      await new Promise((r) => setTimeout(r, 800));
+    }
   }
-  return (json.data ?? json) as T;
+
+  throw lastError || new Error('Request failed');
 }
 
 export const generateContentIdeas = async (details: CampaignDetails): Promise<GeneratedContent> => {

@@ -10,7 +10,8 @@
     "install:all": "npm install && npm install --prefix backend",
     "build": "vite build",
     "preview": "vite preview",
-    "start:api": "npm run start --prefix backend"
+    "start:api": "npm run start --prefix backend",
+    "start": "npm run build && npm run start:api"
   },
   "dependencies": {
     "@google/genai": "^1.27.0",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.2.4",
     "typescript": "~5.8.2",

@@ -5,6 +5,8 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 export interface InstagramStatus {
   configured: boolean;
   connected: boolean;
+  dmAutoReply?: boolean;
+  botName?: string;
   account: {
     username: string;
     name: string;
@@ -29,19 +31,20 @@ export async function getInstagramStatus(): Promise<InstagramStatus> {
 }
 
 export function openInstagramConnect(): Promise<InstagramStatus['account']> {
+  const authPath = `${API_BASE}/auth/instagram`;
   return new Promise((resolve, reject) => {
     const width = 680;
     const height = 760;
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
     const popup = window.open(
-      `${API_BASE}/auth/instagram`,
+      authPath,
       'nexora_instagram_oauth',
       `width=${width},height=${height},left=${left},top=${top}`
     );
 
     if (!popup) {
-      reject(new Error('Popup blocked. Allow popups for Connect Instagram.'));
+      window.location.assign(authPath);
       return;
     }
 
@@ -98,4 +101,15 @@ export async function syncInstagramLeads(forceRescore = false): Promise<Instagra
     throw new Error(json.error || `Instagram sync failed (${res.status})`);
   }
   return json.data as InstagramSyncResult;
+}
+
+export async function subscribeInstagramMessaging(): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/instagram/subscribe-messaging`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.success === false) {
+    throw new Error(json.error || 'Could not enable Instagram DM webhooks');
+  }
 }

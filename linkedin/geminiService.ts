@@ -28,6 +28,8 @@ export const generatePostsText = async (
       data,
       preferences: prefs,
       postCount,
+      voiceMode: prefs.voiceMode || 'company',
+      customTone: prefs.customTone,
     });
     return Array.isArray(posts) ? posts : [];
   } catch (e) {

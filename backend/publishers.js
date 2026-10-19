@@ -6,8 +6,13 @@ const path = require('path');
 const axios = require('axios');
 const FormData = require('form-data');
 const igStore = require('./instagramStore');
+const fbStore = require('./facebookStore');
 
-const GRAPH = 'https://graph.facebook.com/v21.0';
+const GRAPH = 'https://graph.facebook.com/v22.0';
+
+function pageAccount() {
+  return fbStore.getAccount() || igStore.getAccount();
+}
 const UPLOAD_DIR = path.join(__dirname, 'data', 'uploads');
 const PUBLIC_BASE =
   process.env.PUBLIC_BASE_URL ||
@@ -50,9 +55,9 @@ function materializeImage(imageUrl, idHint = 'img') {
 }
 
 async function publishFacebook(post) {
-  const account = igStore.getAccount();
+  const account = pageAccount();
   if (!account?.pageId || !account?.pageAccessToken) {
-    throw new Error('Connect Instagram/Facebook (Meta) first — Facebook Page token missing');
+    throw new Error('Connect Facebook Page first (Social hub → Connect Facebook)');
   }
 
   const message = captionFromPost(post);
@@ -94,9 +99,23 @@ async function publishFacebook(post) {
 }
 
 async function publishInstagram(post) {
-  const account = igStore.getAccount();
+  // Prefer Page-linked IG (Facebook connect); fall back to Instagram Login store
+  const fb = fbStore.getAccount();
+  const ig = igStore.getAccount();
+  const account =
+    fb?.igUserId && fb?.pageAccessToken
+      ? {
+          igUserId: fb.igUserId,
+          pageAccessToken: fb.pageAccessToken,
+        }
+      : ig?.authMode === 'facebook_login' && ig?.pageAccessToken
+        ? ig
+        : null;
+
   if (!account?.igUserId || !account?.pageAccessToken) {
-    throw new Error('Connect Instagram first');
+    throw new Error(
+      'Instagram publishing needs a Facebook Page linked to Instagram. Use Connect Facebook (Page with IG linked), or set PUBLIC_BASE_URL and use comment sync via Instagram Login.'
+    );
   }
 
   const caption = captionFromPost(post);

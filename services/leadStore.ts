@@ -1,38 +1,15 @@
-import type { Lead, LeadTemperature, SocialInteraction, SocialResponse } from '../types';
+import type {
+  Lead,
+  LeadHandoffPackage,
+  LeadMessage,
+  LeadTemperature,
+  SocialInteraction,
+  SocialResponse,
+} from '../types';
 
 const STORAGE_KEY = 'nexora-leads';
 const SEED_FLAG = 'nexora-leads-seeded';
-
-const SAMPLE_LEADS: Omit<Lead, 'id' | 'createdAt'>[] = [
-  {
-    platform: 'Instagram',
-    customerComment: 'Where can I buy the new limited edition near me? Need it this weekend for a party.',
-    temperature: 'hot',
-    score: 92,
-    intentSummary: 'Ready to purchase — asking for local availability this weekend.',
-    recommendedProduct: 'Johnnie Walker Blue Label',
-    suggestedReply: 'Happy to help you find it nearby!',
-    status: 'new',
-  },
-  {
-    platform: 'Facebook',
-    customerComment: 'Looking for a smooth whisky gift under $80 — any recommendations?',
-    temperature: 'warm',
-    score: 68,
-    intentSummary: 'Gift shopping with budget — comparing options.',
-    recommendedProduct: 'Johnnie Walker Black Label',
-    status: 'new',
-  },
-  {
-    platform: 'Twitter / X',
-    customerComment: 'That new ad looks fire 🔥',
-    temperature: 'cold',
-    score: 22,
-    intentSummary: 'Casual engagement with no purchase ask.',
-    recommendedProduct: 'Guinness',
-    status: 'new',
-  },
-];
+const API = '/api/leads';
 
 function readRaw(): Lead[] {
   try {
@@ -50,26 +27,63 @@ function writeRaw(leads: Lead[]) {
   window.dispatchEvent(new CustomEvent('nexora-leads-updated'));
 }
 
-function ensureSeeded() {
+/** Strip legacy demo/sample leads — workspace starts empty. */
+function clearLegacySeedData() {
   if (typeof window === 'undefined') return;
-  if (localStorage.getItem(SEED_FLAG)) return;
-  const existing = readRaw();
-  if (existing.length === 0) {
-    const now = Date.now();
-    const seeded: Lead[] = SAMPLE_LEADS.map((lead, i) => ({
-      ...lead,
-      id: `seed-${i}`,
-      createdAt: new Date(now - i * 3600_000).toISOString(),
-    }));
-    writeRaw(seeded);
+  try {
+    const existing = readRaw();
+    const cleaned = existing.filter((l) => !String(l.id || '').startsWith('seed-'));
+    if (cleaned.length !== existing.length) {
+      writeRaw(cleaned);
+    }
+    localStorage.setItem(SEED_FLAG, '1');
+  } catch {
+    /* ignore */
   }
-  localStorage.setItem(SEED_FLAG, '1');
+}
+
+function notify() {
+  window.dispatchEvent(new CustomEvent('nexora-leads-updated'));
+}
+
+/** Sync from API into localStorage cache; falls back to cache if API down. */
+export async function fetchLeads(params?: {
+  temperature?: string;
+  status?: string;
+  channel?: string;
+}): Promise<Lead[]> {
+  clearLegacySeedData();
+  try {
+    const q = new URLSearchParams();
+    if (params?.temperature) q.set('temperature', params.temperature);
+    if (params?.status) q.set('status', params.status);
+    if (params?.channel) q.set('channel', params.channel);
+    const res = await fetch(`${API}?${q.toString()}`, { credentials: 'include' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    const leads: Lead[] = json.data?.leads || [];
+    if (leads.length > 0 || json.success) {
+      writeRaw(leads.length ? leads : readRaw());
+      return leads.length
+        ? leads
+        : readRaw().sort(
+            (a, b) =>
+              new Date(b.lastMessageAt || b.createdAt).getTime() -
+              new Date(a.lastMessageAt || a.createdAt).getTime()
+          );
+    }
+  } catch (err) {
+    console.warn('[leadStore] API fetch failed, using cache', err);
+  }
+  return getLeads();
 }
 
 export function getLeads(): Lead[] {
-  ensureSeeded();
+  clearLegacySeedData();
   return readRaw().sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    (a, b) =>
+      new Date(b.lastMessageAt || b.createdAt).getTime() -
+      new Date(a.lastMessageAt || a.createdAt).getTime()
   );
 }
 
@@ -82,16 +96,126 @@ export function getLeadCounts(): Record<LeadTemperature, number> {
   };
 }
 
+export async function fetchLeadDetail(id: string): Promise<{
+  lead: Lead;
+  messages: LeadMessage[];
+  handoff: LeadHandoffPackage;
+} | null> {
+  try {
+    const res = await fetch(`${API}/${encodeURIComponent(id)}`, { credentials: 'include' });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.data || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchLeadMessages(id: string): Promise<LeadMessage[]> {
+  try {
+    const res = await fetch(`${API}/${encodeURIComponent(id)}/messages`, {
+      credentials: 'include',
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json.data || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function replyToLead(
+  id: string,
+  text: string,
+  asHuman = true
+): Promise<{ delivered: boolean; lead?: Lead; message?: LeadMessage }> {
+  const res = await fetch(`${API}/${encodeURIComponent(id)}/reply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ text, asHuman }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || 'Reply failed');
+  }
+  if (json.data?.lead) {
+    const next = readRaw().map((l) => (l.id === id ? { ...l, ...json.data.lead } : l));
+    writeRaw(next);
+  }
+  notify();
+  return json.data;
+}
+
+export async function releaseLeadToAi(
+  id: string
+): Promise<Lead | null> {
+  try {
+    const res = await fetch(`${API}/${encodeURIComponent(id)}/release`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({}),
+    });
+    const json = await res.json();
+    if (res.ok && json.data?.lead) {
+      const next = readRaw().map((l) => (l.id === id ? { ...l, ...json.data.lead } : l));
+      writeRaw(next);
+      notify();
+      return json.data.lead;
+    }
+  } catch (err) {
+    console.warn('[leadStore] release API failed', err);
+  }
+  return updateLead(id, {
+    autoReplyPaused: false,
+    conversationState: 'AI_ACTIVE',
+    status: 'contacted',
+  });
+}
+
+export async function triggerHandoff(
+  id: string,
+  reason?: string
+): Promise<{ lead: Lead; handoff: LeadHandoffPackage }> {
+  const res = await fetch(`${API}/${encodeURIComponent(id)}/handoff`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ reason }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.error || 'Handoff failed');
+  }
+  if (json.data?.lead) {
+    const next = readRaw().map((l) => (l.id === id ? { ...l, ...json.data.lead } : l));
+    writeRaw(next);
+  }
+  notify();
+  return json.data;
+}
+
 export function addLeadFromInteraction(
   interaction: SocialInteraction,
   response: SocialResponse
 ): Lead {
-  ensureSeeded();
+  clearLegacySeedData();
   const temperature = normalizeTemperature(response.leadTemperature);
   const score = clampScore(response.leadScore, temperature);
+  const channel =
+    /whatsapp/i.test(interaction.platform)
+      ? 'whatsapp'
+      : /instagram/i.test(interaction.platform)
+        ? 'instagram'
+        : /lead agent/i.test(interaction.platform)
+          ? 'web'
+          : 'manual';
+
   const lead: Lead = {
     id: `lead-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     platform: interaction.platform,
+    channel,
     customerComment: interaction.customerComment,
     temperature,
     score,
@@ -100,16 +224,39 @@ export function addLeadFromInteraction(
     suggestedReply: response.suggestedReply,
     status: 'new',
     createdAt: new Date().toISOString(),
-    source: 'manual',
+    lastMessageAt: new Date().toISOString(),
+    source: channel,
   };
+
   const next = [lead, ...readRaw()];
   writeRaw(next);
+
+  void fetch(API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      ...lead,
+      initialMessage: interaction.customerComment,
+      agentMessage: response.suggestedReply,
+    }),
+  })
+    .then(async (res) => {
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json.data?.id && json.data.id !== lead.id) {
+        const mapped = readRaw().map((l) => (l.id === lead.id ? { ...l, ...json.data } : l));
+        writeRaw(mapped);
+      }
+    })
+    .catch(() => {});
+
   return lead;
 }
 
 /** Merge Instagram (or other) leads, de-duping by externalId / id */
 export function mergeLeads(incoming: Lead[]): number {
-  ensureSeeded();
+  clearLegacySeedData();
   const existing = readRaw();
   const byKey = new Set(
     existing.flatMap((l) => [l.externalId, l.id].filter(Boolean) as string[])
@@ -118,14 +265,24 @@ export function mergeLeads(incoming: Lead[]): number {
     const keys = [l.externalId, l.id].filter(Boolean) as string[];
     return keys.length === 0 || !keys.some((k) => byKey.has(k));
   });
-  if (fresh.length === 0) return 0;
+  if (fresh.length === 0) {
+    void fetchLeads();
+    return 0;
+  }
   writeRaw([...fresh, ...existing]);
+  void fetchLeads();
   return fresh.length;
 }
 
 export function updateLeadStatus(id: string, status: Lead['status']) {
   const next = readRaw().map((l) => (l.id === id ? { ...l, status } : l));
   writeRaw(next);
+  void fetch(`${API}/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ status }),
+  }).catch(() => {});
 }
 
 function normalizeTemperature(value: unknown): LeadTemperature {
