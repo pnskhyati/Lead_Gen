@@ -1,0 +1,19 @@
+sequenceDiagram
+  actor User
+  participant UI as Nexora UI
+  participant API as seoGeo API
+  participant Google as Google OAuth
+  participant Store as seo-geo-google.json
+
+  User->>UI: Connect Google
+  UI->>API: GET /oauth/start
+  API->>Google: Redirect consent
+  Google->>User: Approve scopes
+  Google->>API: GET /oauth/callback
+  API->>Store: Save tokens
+  API->>UI: Redirect success
+  User->>UI: Re-audit
+  UI->>API: POST /audit
+  API->>Google: Read GSC + GBP
+  Google-->>API: Indexing · location data
+  API-->>UI: Recommendations with evidence

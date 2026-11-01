@@ -1,0 +1,7 @@
+flowchart TD
+  P["Add GEO prompts<br/>POST /citations/prompts"] --> RUN["Run tests<br/>POST /citations/run"]
+  RUN --> V["vertex.runGeoCitationSample()<br/><small>same client as copilot</small>"]
+  V --> PARSE["Parse answer<br/>cited URLs · brand · domain"]
+  PARSE --> LOG[("Append citation run log")]
+  LOG --> DB["Dashboard<br/>GET /citations/dashboard"]
+  DB --> RATE["Sampled citation rate<br/><small>not a guarantee</small>"]

@@ -11,7 +11,12 @@ const STORE_PATH = path.join(DATA_DIR, 'leads-crm.json');
 const LeadSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, unique: true, index: true },
-    channel: { type: String, enum: ['web', 'instagram', 'whatsapp', 'manual'], default: 'manual' },
+    channel: {
+      type: String,
+      enum: ['web', 'instagram', 'whatsapp', 'facebook', 'email', 'google_ads', 'manual'],
+      default: 'manual',
+    },
+    attribution: { type: mongoose.Schema.Types.Mixed, default: {} },
     platform: { type: String, default: 'Web' },
     externalId: { type: String, index: true },
     author: String,
@@ -41,13 +46,30 @@ const LeadSchema = new mongoose.Schema(
     handoffEmail: String,
     mediaPermalink: String,
     phone: String,
+    email: String,
+    lastEmailSubject: String,
     igScopedId: String,
     autoReplyPaused: { type: Boolean, default: false },
     lastMessageAt: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now },
+    followUps: { type: Array, default: [] },
+    nextFollowUpAt: Date,
+    lifecycleStage: {
+      type: String,
+      enum: ['captured', 'engaged', 'qualified', 'dormant', 'reactivated'],
+      default: 'captured',
+    },
+    reactivationEligible: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
+
+let lifecycle;
+try {
+  lifecycle = require('./leadLifecycle');
+} catch {
+  lifecycle = null;
+}
 
 const LeadMessageSchema = new mongoose.Schema(
   {
@@ -123,6 +145,8 @@ function toClientLead(doc) {
     handoffEmail: o.handoffEmail,
     mediaPermalink: o.mediaPermalink,
     phone: o.phone,
+    email: o.email || null,
+    lastEmailSubject: o.lastEmailSubject || null,
     igScopedId: o.igScopedId,
     autoReplyPaused: Boolean(o.autoReplyPaused),
     lastMessageAt: o.lastMessageAt
@@ -130,7 +154,34 @@ function toClientLead(doc) {
       : new Date(o.createdAt || Date.now()).toISOString(),
     createdAt: o.createdAt ? new Date(o.createdAt).toISOString() : new Date().toISOString(),
     source: o.channel || o.source || 'manual',
+    followUps: Array.isArray(o.followUps) ? o.followUps : [],
+    nextFollowUpAt: o.nextFollowUpAt ? new Date(o.nextFollowUpAt).toISOString() : null,
+    lifecycleStage: o.lifecycleStage || 'captured',
+    reactivationEligible: Boolean(o.reactivationEligible),
+    attribution: o.attribution && typeof o.attribution === 'object' ? o.attribution : {},
   };
+}
+
+function mergeAttribution(existing, incoming) {
+  const base =
+    existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...existing } : {};
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return base;
+  for (const [key, val] of Object.entries(incoming)) {
+    if (val !== undefined && val !== null && val !== '') base[key] = val;
+  }
+  return base;
+}
+
+async function notifySheetsLead(client, isNew) {
+  if (!isNew || !client?.id) return;
+  try {
+    const sheets = require('./googleSheets');
+    if (sheets.isConfigured()) {
+      await sheets.appendLeadRow(client);
+    }
+  } catch (err) {
+    console.warn('[Sheets] append lead', err.message);
+  }
 }
 
 function toClientMessage(doc) {
@@ -223,15 +274,35 @@ async function upsertLead(payload) {
       handoffEmail: payload.handoffEmail ?? existing?.handoffEmail,
       mediaPermalink: payload.mediaPermalink ?? existing?.mediaPermalink,
       phone: payload.phone ?? existing?.phone,
+      email: payload.email ?? existing?.email,
+      lastEmailSubject: payload.lastEmailSubject ?? existing?.lastEmailSubject,
       igScopedId: payload.igScopedId ?? existing?.igScopedId,
       autoReplyPaused:
         payload.autoReplyPaused != null ? payload.autoReplyPaused : existing?.autoReplyPaused || false,
       lastMessageAt: payload.lastMessageAt ? new Date(payload.lastMessageAt) : now,
       createdAt: existing?.createdAt || now,
+      followUps: payload.followUps ?? existing?.followUps ?? [],
+      nextFollowUpAt: payload.nextFollowUpAt ?? existing?.nextFollowUpAt,
+      lifecycleStage: payload.lifecycleStage ?? existing?.lifecycleStage ?? 'captured',
+      reactivationEligible:
+        payload.reactivationEligible != null
+          ? payload.reactivationEligible
+          : existing?.reactivationEligible || false,
+      attribution: mergeAttribution(existing?.attribution, payload.attribution),
     };
 
+    const isNew = !existing;
     const saved = await Lead.findOneAndUpdate({ id: data.id }, data, { upsert: true, new: true });
-    return toClientLead(saved);
+    let client = toClientLead(saved);
+    if (lifecycle?.onLeadUpdated) {
+      try {
+        client = (await lifecycle.onLeadUpdated(exports, client, { reason: 'upsert' })) || client;
+      } catch (e) {
+        console.warn('[Leads] lifecycle upsert', e.message);
+      }
+    }
+    await notifySheetsLead(client, isNew);
+    return client;
   }
 
   const store = readFile();
@@ -268,16 +339,36 @@ async function upsertLead(payload) {
     handoffEmail: payload.handoffEmail ?? existing?.handoffEmail,
     mediaPermalink: payload.mediaPermalink ?? existing?.mediaPermalink,
     phone: payload.phone ?? existing?.phone,
+    email: payload.email ?? existing?.email,
+    lastEmailSubject: payload.lastEmailSubject ?? existing?.lastEmailSubject,
     igScopedId: payload.igScopedId ?? existing?.igScopedId,
     autoReplyPaused:
       payload.autoReplyPaused != null ? payload.autoReplyPaused : existing?.autoReplyPaused || false,
     lastMessageAt: (payload.lastMessageAt && new Date(payload.lastMessageAt).toISOString()) || now.toISOString(),
     createdAt: existing?.createdAt || now.toISOString(),
+    followUps: payload.followUps ?? existing?.followUps ?? [],
+    nextFollowUpAt: payload.nextFollowUpAt ?? existing?.nextFollowUpAt,
+    lifecycleStage: payload.lifecycleStage ?? existing?.lifecycleStage ?? 'captured',
+    reactivationEligible:
+      payload.reactivationEligible != null
+        ? payload.reactivationEligible
+        : existing?.reactivationEligible || false,
+    attribution: mergeAttribution(existing?.attribution, payload.attribution),
   };
 
+  const isNew = !existing;
   store.leads = [lead, ...store.leads.filter((l) => l.id !== lead.id)].slice(0, 500);
   writeFile(store);
-  return toClientLead(lead);
+  let client = toClientLead(lead);
+  if (lifecycle?.onLeadUpdated) {
+    try {
+      client = (await lifecycle.onLeadUpdated(exports, client, { reason: 'upsert' })) || client;
+    } catch (e) {
+      console.warn('[Leads] lifecycle upsert', e.message);
+    }
+  }
+  await notifySheetsLead(client, isNew);
+  return client;
 }
 
 async function updateLead(id, patch) {
@@ -379,8 +470,35 @@ function buildHandoffPackage(lead, messages) {
   return { email, subject, body, waLink, igLink, transcript };
 }
 
+async function sendChannelReply(lead, text, { asHuman = true } = {}) {
+  let channelResult = null;
+  if (lead.channel === 'whatsapp' && lead.phone && replyDeps.whatsapp) {
+    channelResult = await replyDeps.whatsapp.sendWhatsAppText(lead.phone, text);
+  } else if (lead.channel === 'instagram' && lead.igScopedId && replyDeps.instagram) {
+    channelResult = await replyDeps.instagram.sendInstagramDm(lead.igScopedId, text);
+  } else if (lead.channel === 'email' && lead.email && replyDeps.email) {
+    const subject = replyDeps.email.replySubject
+      ? replyDeps.email.replySubject(lead)
+      : `Re: ${lead.lastEmailSubject || 'Your inquiry'}`;
+    channelResult = await replyDeps.email.sendEmail(lead.email, subject, text);
+  }
+  const role = asHuman ? 'human' : 'agent';
+  const msg = await addMessage({ leadId: lead.id, role, text });
+  const updated = await updateLead(lead.id, {
+    status: asHuman ? 'contacted' : lead.status,
+    lastMessageAt: new Date(),
+    suggestedReply: text,
+    lifecycleStage: 'engaged',
+  });
+  return { message: msg, lead: updated, channelResult, delivered: Boolean(channelResult) };
+}
+
 function mountRoutes(app, { requireAuth } = {}) {
   const guard = typeof requireAuth === 'function' ? requireAuth : (_req, _res, next) => next();
+
+  if (lifecycle?.mountRoutes) {
+    lifecycle.mountRoutes(app, exports, guard);
+  }
 
   app.get('/api/leads', guard, async (req, res) => {
     try {
@@ -535,25 +653,11 @@ function mountRoutes(app, { requireAuth } = {}) {
       if (!lead) return res.status(404).json({ success: false, error: 'Lead not found' });
 
       const asHuman = req.body?.asHuman !== false;
-      const role = asHuman ? 'human' : 'agent';
-
-      let channelResult = null;
-      if (lead.channel === 'whatsapp' && lead.phone && replyDeps.whatsapp) {
-        channelResult = await replyDeps.whatsapp.sendWhatsAppText(lead.phone, text);
-      } else if (lead.channel === 'instagram' && lead.igScopedId && replyDeps.instagram) {
-        channelResult = await replyDeps.instagram.sendInstagramDm(lead.igScopedId, text);
-      }
-
-      const msg = await addMessage({ leadId: lead.id, role, text });
-      const updated = await updateLead(lead.id, {
-        status: asHuman ? 'contacted' : lead.status,
-        lastMessageAt: new Date(),
-        suggestedReply: text,
-      });
+      const result = await sendChannelReply(lead, text, { asHuman });
 
       res.json({
         success: true,
-        data: { message: msg, lead: updated, channelResult, delivered: Boolean(channelResult) },
+        data: result,
       });
     } catch (err) {
       console.error('[Leads] reply', err.response?.data || err.message);
@@ -565,11 +669,12 @@ function mountRoutes(app, { requireAuth } = {}) {
   });
 }
 
-const replyDeps = { whatsapp: null, instagram: null };
+const replyDeps = { whatsapp: null, instagram: null, email: null };
 
 function setReplyDeps(deps) {
   if (deps.whatsapp) replyDeps.whatsapp = deps.whatsapp;
   if (deps.instagram) replyDeps.instagram = deps.instagram;
+  if (deps.email) replyDeps.email = deps.email;
 }
 
 module.exports = {
@@ -584,4 +689,5 @@ module.exports = {
   getCounts,
   buildHandoffPackage,
   mongoReady,
+  sendChannelReply,
 };

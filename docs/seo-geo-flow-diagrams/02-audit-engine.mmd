@@ -1,0 +1,18 @@
+flowchart TD
+  START(["Re-audit"]) --> API["POST /api/seo-geo/audit"]
+  API --> K["Load company knowledge"]
+  K --> H["robots · sitemap · homepage"]
+  H --> M{"Full crawl<br/>completed?"}
+  M -->|yes| FP["Use crawl pages"]
+  M -->|no| QS["Sample ~20 URLs"]
+  FP --> RULES["rules.js findings"]
+  QS --> RULES
+  RULES --> G{"Google<br/>connected?"}
+  G -->|yes| GS["GSC + GBP sync"]
+  G -->|no| V
+  GS --> V{"Vertex<br/>available?"}
+  V -->|yes| AI["GEO suggestions<br/>from findings only"]
+  V -->|no| SC
+  AI --> SC["Score · merge statuses"]
+  SC --> SAVE[("Save audit")]
+  SAVE --> UI["GET /recommendations → UI"]

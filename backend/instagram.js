@@ -441,12 +441,23 @@ async function handleIncomingDm(vertex, leadAgent, { senderId, text, messageId, 
     customerComment: text,
     temperature: agentResult.leadTemperature,
     score: agentResult.leadScore,
+    scoreBand: agentResult.scoreBand,
+    intent: agentResult.intent,
+    intentConfidence: agentResult.intentConfidence,
     intentSummary: agentResult.intentSummary,
+    nextBestAction: agentResult.nextBestAction,
+    scoreExplanation: agentResult.scoreExplanation,
+    conversationState: agentResult.conversationState,
     suggestedReply: replyText,
     handoffReason: agentResult.handoffReason,
     handoffEmail: agentResult.handoffEmail,
-    status: agentResult.needsHandoff ? 'handed_off' : lead.status,
+    status: agentResult.needsHandoff
+      ? 'handed_off'
+      : agentResult.captureLead || agentResult.leadScore >= 70
+        ? 'qualified'
+        : 'contacted',
     autoReplyPaused: agentResult.needsHandoff,
+    lifecycleStage: agentResult.needsHandoff ? 'engaged' : 'engaged',
   });
 
   await leadsCrm.addMessage({ leadId: lead.id, role: 'agent', text: replyText });

@@ -4,17 +4,64 @@
  */
 const { GoogleGenAI, Type, Modality } = require('@google/genai');
 
-const TEXT_MODEL = process.env.VERTEX_TEXT_MODEL || 'gemini-2.5-flash';
-const IMAGE_MODEL = process.env.VERTEX_IMAGE_MODEL || 'gemini-2.5-flash-image';
-const VIDEO_MODEL = process.env.VERTEX_VIDEO_MODEL || 'veo-3.1-fast-generate-preview';
 const LOCATION = process.env.VERTEX_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 const PROJECT = process.env.VERTEX_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || '';
-const API_KEY = process.env.VERTEX_API_KEY || process.env.GEMINI_API_KEY || '';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const VERTEX_API_KEY = process.env.VERTEX_API_KEY || '';
+/** Prefer Vertex (ADC) when project is set. Override with GEMINI_USE_GEMINI_API=true to use AI Studio key only. */
+const USE_GEMINI_API =
+  process.env.GEMINI_USE_GEMINI_API === 'true' && !process.env.GEMINI_USE_VERTEX && !process.env.VERTEX_USE_VERTEX;
+const FORCE_VERTEX =
+  process.env.GEMINI_USE_VERTEX === 'true' ||
+  process.env.VERTEX_USE_VERTEX === 'true' ||
+  (Boolean(PROJECT) && !USE_GEMINI_API);
+const API_KEY = USE_GEMINI_API ? GEMINI_API_KEY : VERTEX_API_KEY || (FORCE_VERTEX ? '' : GEMINI_API_KEY);
+const TEXT_MODEL =
+  process.env.VERTEX_TEXT_MODEL ||
+  (USE_GEMINI_API && GEMINI_API_KEY ? 'gemini-3.8-flash' : 'gemini-2.5-flash');
+const IMAGE_MODEL = process.env.VERTEX_IMAGE_MODEL || 'gemini-2.5-flash-image';
+
+/** Google AI API (API key) model IDs differ from Vertex; map retired names. */
+function resolveTextModel() {
+  if (USE_GEMINI_API && GEMINI_API_KEY && !FORCE_VERTEX) {
+    const legacy = new Set(['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3.8-flash']);
+    return legacy.has(TEXT_MODEL) ? 'gemini-3.8-flash' : TEXT_MODEL;
+  }
+  const vertexLegacy = new Set(['gemini-flash-latest', 'gemini-3.8-flash']);
+  return vertexLegacy.has(TEXT_MODEL) ? 'gemini-2.5-flash' : TEXT_MODEL;
+}
+const VIDEO_MODEL = process.env.VERTEX_VIDEO_MODEL || 'veo-3.1-fast-generate-preview';
+
+// ADC often bills against quota_project (e.g. old gcloud default) unless aligned with VERTEX_PROJECT_ID.
+if (PROJECT) {
+  if (!process.env.GOOGLE_CLOUD_PROJECT) process.env.GOOGLE_CLOUD_PROJECT = PROJECT;
+  if (!process.env.GOOGLE_CLOUD_QUOTA_PROJECT) process.env.GOOGLE_CLOUD_QUOTA_PROJECT = PROJECT;
+}
 
 let client = null;
 
 function getClient() {
   if (client) return client;
+
+  // Gemini Developer API (Generative Language) — optional when GEMINI_USE_GEMINI_API=true.
+  if (USE_GEMINI_API && GEMINI_API_KEY) {
+    client = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+    console.log('[Gemini] Using Google AI API key (generativelanguage.googleapis.com)');
+    return client;
+  }
+
+  if (VERTEX_API_KEY && FORCE_VERTEX) {
+    const opts = { vertexai: true, apiKey: VERTEX_API_KEY };
+    if (PROJECT) {
+      opts.project = PROJECT;
+      opts.location = LOCATION;
+    }
+    client = new GoogleGenAI(opts);
+    console.log(
+      `[Vertex] Using Vertex API key${PROJECT ? ` + project=${PROJECT} location=${LOCATION}` : ''}`
+    );
+    return client;
+  }
 
   if (PROJECT) {
     client = new GoogleGenAI({
@@ -22,21 +69,12 @@ function getClient() {
       project: PROJECT,
       location: LOCATION,
     });
-    console.log(`[Vertex] Using project=${PROJECT} location=${LOCATION}`);
-    return client;
-  }
-
-  if (API_KEY) {
-    client = new GoogleGenAI({
-      vertexai: true,
-      apiKey: API_KEY,
-    });
-    console.log('[Vertex] Using API key (express) mode');
+    console.log(`[Vertex] Using project=${PROJECT} location=${LOCATION} (ADC)`);
     return client;
   }
 
   throw new Error(
-    'Vertex AI is not configured. Set VERTEX_PROJECT_ID (+ ADC / GOOGLE_APPLICATION_CREDENTIALS) or VERTEX_API_KEY.'
+    'Vertex AI is not configured. Set VERTEX_PROJECT_ID in .env.local, run gcloud auth application-default login, or set VERTEX_API_KEY.'
   );
 }
 
@@ -81,17 +119,33 @@ async function generateText(prompt, { systemInstruction, responseSchema, tools }
   if (tools) config.tools = tools;
 
   const response = await ai.models.generateContent({
-    model: TEXT_MODEL,
+    model: resolveTextModel(),
     contents: prompt,
     config,
   });
   return { response, text: extractText(response) };
 }
 
+function stripJsonText(raw) {
+  let text = String(raw || '').replace(/^\uFEFF/, '').trim();
+  const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
+  if (fenced) text = fenced[1].trim();
+  return text.replace(/^\uFEFF/, '');
+}
+
+function parseModelJson(raw) {
+  const text = stripJsonText(raw);
+  if (!text) throw new Error('Empty AI response');
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error(`Model returned invalid JSON: ${err.message}`);
+  }
+}
+
 async function generateJson(prompt, responseSchema, systemInstruction) {
   const { text } = await generateText(prompt, { responseSchema, systemInstruction });
-  if (!text) throw new Error('Empty AI response');
-  return JSON.parse(text);
+  return parseModelJson(text);
 }
 
 async function generateImage(prompt) {
@@ -179,6 +233,99 @@ const contentGenerationSchema = {
   },
   required: ['captions', 'imagePrompts', 'videoScript'],
 };
+
+const PLATFORM_VIRAL_PLAYBOOK = `
+Use the topic's industry/niche to pick formats that actually win reach there (not generic marketing fluff).
+
+LinkedIn — pick ONE per post: document/PDF carousel slide copy (5–8 slides as numbered sections in content); contrarian hook + numbered insights + soft CTA; mini case study (problem → approach → outcome); "myth vs reality" list; poll-style opener + discussion question. B2B/regulated niches (health, fintech, gov): lead with trust, outcomes, compliance-aware wording — no reckless medical/financial claims.
+
+Facebook (Page) — pick ONE: conversational story + question; short native video/Reels script (hook in first line); shareable listicle; community poll framing; link teaser with curiosity gap. Favor warmth and shareability over corporate jargon.
+
+Instagram / Threads — pick ONE: Reels script (0–3s hook, beats, on-screen text cues); carousel slide copy (slide 1 hook, slides 2–6 value, final CTA); single-image caption with line breaks + save-worthy tips; before/after or myth-bust carousel. Specify square or 4:5 visual direction in imagePrompt.
+
+X (Twitter) — pick ONE: 6–10 tweet thread (label tweets T1, T2…); single punchy post under 280 chars; hot take + quote-tweet bait; list thread with emoji bullets sparingly. Optimize for replies and reposts.
+
+Each post must be a DIFFERENT layout/format. Respect platform character norms. Hashtags: LinkedIn 3–5, Instagram 8–15, Facebook 2–5, X 1–3.`;
+
+const topicSocialPackSchema = {
+  type: Type.OBJECT,
+  properties: {
+    topicSummary: { type: Type.STRING },
+    nicheAudience: { type: Type.STRING },
+    posts: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          platform: { type: Type.STRING },
+          viralFormat: { type: Type.STRING },
+          whyThisFormat: { type: Type.STRING },
+          content: { type: Type.STRING },
+          hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+          imagePrompt: { type: Type.STRING },
+          aspectRatio: { type: Type.STRING },
+        },
+        required: ['platform', 'viralFormat', 'whyThisFormat', 'content', 'hashtags', 'imagePrompt'],
+      },
+    },
+  },
+  required: ['topicSummary', 'nicheAudience', 'posts'],
+};
+
+async function generateTopicSocialPack({
+  topic,
+  product,
+  audience,
+  platforms,
+  postCount,
+  voiceMode,
+  customTone,
+  tone,
+  formatHint,
+} = {}) {
+  const voice = getCompanyVoice({
+    voiceMode: voiceMode || 'company',
+    tone,
+    customTone,
+  });
+
+  const platformList = Array.isArray(platforms) && platforms.length
+    ? platforms
+    : ['LinkedIn', 'Facebook', 'Instagram', 'X (Twitter)'];
+
+  const count = Math.min(Math.max(Number(postCount) || platformList.length, 1), 8);
+  const multiChannel = platformList.length > 1;
+
+  const taskInstruction = multiChannel
+    ? `Create exactly ONE distinct post per platform in this list (do not duplicate formats across platforms): ${platformList.join(', ')}.`
+    : `Create ${count} distinct posts for ${platformList[0]} only — each must use a DIFFERENT viral format/layout from the playbook.`;
+
+  const prompt = `TOPIC / BRIEF (this drives niche, angle, and format choice):
+"""${String(topic || '').trim()}"""
+
+Brand context:
+- Company / product: ${product || 'the brand'}
+- Target audience: ${audience || 'target buyers'}
+${formatHint ? `- Preferred format angle: ${formatHint}` : ''}
+
+${taskInstruction}
+
+${PLATFORM_VIRAL_PLAYBOOK}
+
+Return JSON with topicSummary, nicheAudience, and posts[]. Each content field must be ready to paste — include slide labels, thread numbering, or section headers inside content when the format requires it. imagePrompt must describe visuals optimized for that platform (infographic, carousel slide 1, reel thumbnail, etc.). Do not invent fake statistics or regulated claims; use illustrative framing when data is not provided.`;
+
+  const systemInstruction = `You are a multi-platform growth strategist who adapts viral organic formats to each niche.
+${voice}
+CRITICAL: Every post must match the brand voice block and fit the topic niche (e.g. healthcare + AI → credible, educational, trust-first).`;
+
+  const parsed = await generateJson(prompt, topicSocialPackSchema, systemInstruction);
+  const posts = Array.isArray(parsed?.posts) ? parsed.posts : [];
+  return {
+    topicSummary: parsed?.topicSummary || String(topic || '').slice(0, 120),
+    nicheAudience: parsed?.nicheAudience || audience || '',
+    posts: posts.slice(0, multiChannel ? platformList.length : count),
+  };
+}
 
 async function generateContentIdeas(details) {
   const platformInstruction =
@@ -381,7 +528,7 @@ If useful, call displayChart with title + data [{name, value}].`;
   contents.push({ role: 'user', parts: [{ text: newMessage }] });
 
   const response = await ai.models.generateContent({
-    model: TEXT_MODEL,
+    model: resolveTextModel(),
     contents,
     config: {
       systemInstruction,
@@ -466,24 +613,88 @@ Posts:\n${postSummaries}`;
   return generateJson(prompt, schema);
 }
 
+function vertexAuthHint() {
+  if (USE_GEMINI_API && GEMINI_API_KEY) return 'Using GEMINI_API_KEY (Google AI API, not Vertex predict).';
+  if (VERTEX_API_KEY && FORCE_VERTEX) return 'Using VERTEX_API_KEY (Vertex express).';
+  if (PROJECT) {
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      return 'Using VERTEX_PROJECT_ID + service account file (GOOGLE_APPLICATION_CREDENTIALS).';
+    }
+    return 'Using VERTEX_PROJECT_ID + Application Default Credentials (gcloud auth application-default login). No JSON key required.';
+  }
+  return 'Set VERTEX_PROJECT_ID in .env.local and run: gcloud auth application-default login';
+}
+
+/** User-facing hint from Vertex / Google API errors (billing, IAM, ADC). */
+function formatVertexError(err) {
+  const raw = stripJsonText(err?.message || String(err));
+  try {
+    const parsed = JSON.parse(raw);
+    const msg = parsed?.error?.message || raw;
+    if (/billing/i.test(msg)) {
+      const wrong = msg.match(/project #(\S+)/)?.[1];
+      const hint =
+        wrong && PROJECT && wrong !== PROJECT
+          ? ` Your .env.local uses VERTEX_PROJECT_ID=${PROJECT}, but Google billed project "${wrong}" (stale ADC quota). Run: gcloud auth application-default set-quota-project ${PROJECT}`
+          : ` Link billing to project "${PROJECT || 'your project'}" and enable aiplatform.googleapis.com.`;
+      return `${msg}${hint}`;
+    }
+    if (/aiplatform\.endpoints\.predict|IAM_PERMISSION_DENIED/i.test(msg)) {
+      return `${msg} If you already have Owner/Vertex AI User, complete **billing account verification** for tecavy - marketing os, then wait 15 min. Or use GEMINI_API_KEY (Google AI API) in .env.local. IAM: https://console.cloud.google.com/iam-admin/iam?project=${PROJECT || 'marketing-os-513012'}`;
+    }
+    if (/prepayment credits|402|"code":402/i.test(msg)) {
+      return `${msg} Open https://ai.studio/projects → link billing or add prepay credits for the API key project. Until then, generation cannot run (this is billing, not Nexora code).`;
+    }
+    if (/no longer available|models\/gemini/i.test(msg)) {
+      return `${msg} Set VERTEX_TEXT_MODEL=gemini-2.5-flash in .env.local and restart the backend.`;
+    }
+    if (/Publisher model.*was not found/i.test(msg)) {
+      return `${msg} In Cloud Console → Vertex AI → open Generative AI for project "${PROJECT || 'marketing-os-513012'}" and finish first-time setup. Then run: gcloud auth application-default login --project=${PROJECT || 'marketing-os-513012'}`;
+    }
+    return msg;
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * Sampled GEO citation check — same Vertex client as copilot, content ideas, lead agent.
+ */
+async function runGeoCitationSample(userPrompt, { companyName = 'the business', domain = '' } = {}) {
+  const domainHint = domain ? ` Prefer citing ${domain} when relevant.` : '';
+  const system = `You are simulating an AI search assistant. Answer the user question naturally. Include source URLs when you reference facts. Company context: ${companyName}.${domainHint} Do not invent analytics or ranking guarantees.`;
+  const { text } = await generateText(String(userPrompt || '').trim(), { systemInstruction: system });
+  return text;
+}
+
 function getStatus() {
   return {
-    configured: Boolean(PROJECT || API_KEY),
-    mode: PROJECT ? 'vertex-adc' : API_KEY ? 'vertex-api-key' : 'unconfigured',
+    configured: Boolean(PROJECT || GEMINI_API_KEY || VERTEX_API_KEY),
+    mode: USE_GEMINI_API && GEMINI_API_KEY
+      ? 'gemini-api-key'
+      : PROJECT
+        ? 'vertex-adc'
+        : VERTEX_API_KEY
+          ? 'vertex-api-key'
+          : 'unconfigured',
     project: PROJECT || null,
     location: LOCATION,
-    textModel: TEXT_MODEL,
+    textModel: resolveTextModel(),
     imageModel: IMAGE_MODEL,
+    authHint: vertexAuthHint(),
   };
 }
 
 module.exports = {
   getStatus,
+  formatVertexError,
+  runGeoCitationSample,
   generateText,
   generateJson,
   generateImage,
   generatePromoVideo,
   generateContentIdeas,
+  generateTopicSocialPack,
   generateSocialReply,
   generateProductShowcase,
   generateCampaignPlan,

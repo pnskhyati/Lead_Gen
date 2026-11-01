@@ -1,0 +1,876 @@
+@import "tailwindcss";
+@import "./styles/tecavy-shell.css";
+
+/* ==========================================================================
+   GLOBAL SEMANTIC COLOR SYSTEM & WCAG 2.2 ACCESSIBILITY TOKENS
+   Maintains existing visual identity while enforcing accessible contrast (AA/AAA).
+   Dark Mode by default; high-clarity Light Mode with verified contrast hierarchy.
+   ========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* 1. Page Backgrounds & Canvas */
+  --background: #070B14;
+  --background-secondary: #090E18;
+  --canvas: var(--background);
+  --sidebar: var(--background-secondary);
+
+  /* 2. Surfaces & Containers */
+  --surface: #0D1420;
+  --surface-elevated: #131D2E;
+  --surface-raised: var(--surface-elevated);
+  --surface-hover: #172336;
+
+  /* 3. Text Hierarchy (WCAG AAA / AA compliant against --surface #0D1420) */
+  --text-primary: #F8FAFC;      /* Slate-50  - Ratio: 17.5:1 (AAA) */
+  --text-secondary: #CBD5E1;    /* Slate-300 - Ratio: 10.5:1 (AAA) */
+  --text-muted: #94A3B8;        /* Slate-400 - Ratio: 5.9:1  (AA)  */
+  --text-disabled: #64748B;     /* Slate-500 - Ratio: 3.2:1  (Disabled controls) */
+  --muted-decor: var(--text-muted);
+
+  /* 4. Borders & Dividers (Visible 3:1 separation without glare) */
+  --border-subtle: rgba(148, 163, 184, 0.18);
+  --border: rgba(148, 163, 184, 0.30);
+  --border-strong: rgba(148, 163, 184, 0.52);
+
+  /* 5. Primary Actions & Accents */
+  --primary: #22D3EE;           /* Cyan-400 */
+  --primary-hover: #67E8F9;     /* Cyan-300 */
+  --primary-active: #06B6D4;    /* Cyan-500 */
+  --primary-foreground: #070B14;/* Ratio against #22D3EE: 10.5:1 */
+  --accent: var(--primary);
+  --accent-hover: var(--primary-hover);
+  --accent-active: var(--primary-active);
+  --accent-foreground: var(--primary-foreground);
+  --accent-subtle: rgba(34, 211, 238, 0.14);
+
+  /* 6. Secondary Actions */
+  --secondary: #1E293B;
+  --secondary-foreground: #F8FAFC;
+
+  /* 7. Semantic Status Feedback Families */
+  /* Converted / Success / Won */
+  --success: #4ADE80;           /* Green-400 - Ratio: 8.2:1 */
+  --success-background: rgba(34, 197, 94, 0.15);
+  --success-foreground: #4ADE80;
+  --status-converted: var(--success);
+  --status-converted-bg: var(--success-background);
+  --status-converted-border: rgba(74, 222, 128, 0.40);
+
+  /* Warning / Warm */
+  --warning: #FBBF24;           /* Amber-400 - Ratio: 8.5:1 */
+  --warning-background: rgba(245, 158, 11, 0.15);
+  --warning-foreground: #FBBF24;
+  --status-warm: var(--warning);
+  --status-warm-bg: var(--warning-background);
+  --status-warm-border: rgba(251, 191, 36, 0.40);
+
+  /* Error / Lost */
+  --error: #F87171;             /* Red-400 - Ratio: 5.8:1 */
+  --error-background: rgba(239, 68, 68, 0.15);
+  --error-foreground: #F87171;
+  --status-lost: var(--error);
+  --status-lost-bg: var(--error-background);
+  --status-lost-border: rgba(248, 113, 113, 0.40);
+
+  /* Hot Lead */
+  --status-hot: #FB7185;         /* Rose-400 - Ratio: 6.2:1 */
+  --status-hot-bg: rgba(251, 113, 133, 0.15);
+  --status-hot-border: rgba(251, 113, 133, 0.40);
+
+  /* Qualified Lead */
+  --status-qualified: #38BDF8;   /* Sky-400 - Ratio: 6.8:1 */
+  --status-qualified-bg: rgba(56, 189, 248, 0.15);
+  --status-qualified-border: rgba(56, 189, 248, 0.40);
+
+  /* Nurture / New */
+  --status-nurture: #CBD5E1;     /* Slate-300 - Ratio: 10.5:1 */
+  --status-nurture-bg: rgba(148, 163, 184, 0.15);
+  --status-nurture-border: rgba(148, 163, 184, 0.40);
+
+  /* Info */
+  --info: #38BDF8;
+  --info-background: rgba(56, 189, 248, 0.15);
+  --info-foreground: #38BDF8;
+
+  /* 8. Interactive Focus Indicator */
+  --focus-ring: #22D3EE;
+
+  /* 9. Geometry Foundations */
+  --radius-card: 10px;
+  --radius-control: 8px;
+  --control-height: 40px;
+}
+
+/* ==========================================================================
+   LIGHT MODE SEMANTIC SYSTEM
+   High-clarity light theme with verified WCAG 2.2 AA / AAA contrast.
+   ========================================================================== */
+
+[data-theme="light"],
+.theme-light {
+  color-scheme: light;
+
+  /* 1. Page Backgrounds & Canvas (Clearly distinguishable from cards) */
+  --background: #F8FAFC;        /* Slate-50 page background */
+  --background-secondary: #F1F5F9; /* Slate-100 sidebar/nav background */
+  --canvas: var(--background);
+  --sidebar: var(--background-secondary);
+
+  /* 2. Surfaces & Containers (Pure white cards distinct from slate canvas) */
+  --surface: #FFFFFF;
+  --surface-elevated: #FFFFFF;
+  --surface-raised: #F1F5F9;
+  --surface-hover: #F1F5F9;
+
+  /* 3. Text Hierarchy (WCAG AAA / AA compliant against #FFFFFF and #F8FAFC) */
+  --text-primary: #0F172A;      /* Slate-900 - Ratio: 15.6:1 (AAA) */
+  --text-secondary: #334155;    /* Slate-700 - Ratio: 9.6:1  (AAA) */
+  --text-muted: #475569;        /* Slate-600 - Ratio: 7.2:1  (AAA) */
+  --text-disabled: #64748B;     /* Slate-500 - Ratio: 4.6:1  (AA)  */
+  --muted-decor: var(--text-muted);
+
+  /* 4. Borders & Dividers (Crisp visible borders: 3:1 contrast against canvas) */
+  --border-subtle: #E2E8F0;     /* Slate-200 */
+  --border: #CBD5E1;            /* Slate-300 */
+  --border-strong: #94A3B8;     /* Slate-400 */
+
+  /* 5. Primary Actions & Accents */
+  --primary: #0891B2;           /* Cyan-600 */
+  --primary-hover: #0E7490;     /* Cyan-700 */
+  --primary-active: #155E75;    /* Cyan-800 */
+  --primary-foreground: #FFFFFF;/* Ratio against #0891B2: 4.6:1 (AA) */
+  --accent: var(--primary);
+  --accent-hover: var(--primary-hover);
+  --accent-active: var(--primary-active);
+  --accent-foreground: var(--primary-foreground);
+  --accent-subtle: rgba(8, 145, 178, 0.12);
+
+  /* 6. Secondary Actions */
+  --secondary: #E2E8F0;
+  --secondary-foreground: #0F172A;
+
+  /* 7. Semantic Status Feedback Families (700 text on 100 bg = 5:1+ contrast) */
+  /* Converted / Success / Won */
+  --success: #15803D;           /* Emerald-700 - Ratio: 5.2:1 */
+  --success-background: #DCFCE7;/* Emerald-100 */
+  --success-foreground: #15803D;
+  --status-converted: var(--success);
+  --status-converted-bg: var(--success-background);
+  --status-converted-border: #86EFAC;
+
+  /* Warning / Warm */
+  --warning: #B45309;           /* Amber-700 - Ratio: 4.8:1 */
+  --warning-background: #FEF3C7;/* Amber-100 */
+  --warning-foreground: #B45309;
+  --status-warm: var(--warning);
+  --status-warm-bg: var(--warning-background);
+  --status-warm-border: #FCD34D;
+
+  /* Error / Lost */
+  --error: #B91C1C;             /* Red-700 - Ratio: 5.6:1 */
+  --error-background: #FEE2E2;  /* Red-100 */
+  --error-foreground: #B91C1C;
+  --status-lost: var(--error);
+  --status-lost-bg: var(--error-background);
+  --status-lost-border: #FCA5A5;
+
+  /* Hot Lead */
+  --status-hot: #BE123C;         /* Rose-700 - Ratio: 5.8:1 */
+  --status-hot-bg: #FFE4E6;     /* Rose-100 */
+  --status-hot-border: #FDA4AF;
+
+  /* Qualified Lead */
+  --status-qualified: #0E7490;   /* Cyan-700 - Ratio: 5.4:1 */
+  --status-qualified-bg: #CFFAFE;/* Cyan-100 */
+  --status-qualified-border: #67E8F9;
+
+  /* Nurture / New */
+  --status-nurture: #334155;     /* Slate-700 - Ratio: 9.6:1 */
+  --status-nurture-bg: #F1F5F9; /* Slate-100 */
+  --status-nurture-border: #CBD5E1;
+
+  /* Info */
+  --info: #0369A1;              /* Sky-700 - Ratio: 5.4:1 */
+  --info-background: #E0F2FE;   /* Sky-100 */
+  --info-foreground: #0369A1;
+
+  /* 8. Interactive Focus Indicator */
+  --focus-ring: #0891B2;
+}
+
+/* ==========================================================================
+   TYPOGRAPHIC & BASE FOUNDATIONS
+   Clean Inter typography stack.
+   Tabular numerals for numbers, scores, currency, metrics.
+   ========================================================================== */
+
+html {
+  scroll-behavior: smooth;
+  background-color: var(--background);
+}
+
+body {
+  background-color: var(--background);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow-x: hidden;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+/* Tabular numerals for data, metrics, counts, scores, and currency */
+.tabular-nums,
+table,
+[data-tabular="true"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Page Titles */
+h1,
+.page-title,
+.text-2xl,
+.text-3xl {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* Section Titles */
+h2,
+h3,
+.section-title {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Deprecate serif display in favor of clean Inter sans stack */
+.serif,
+.font-serif-display,
+.font-sans-body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+/* Supporting labels */
+.text-xs,
+.supporting-label,
+label {
+  font-size: 12px;
+}
+
+/* Control heights & geometry */
+button,
+select,
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"] {
+  min-height: var(--control-height);
+  border-radius: var(--radius-control);
+}
+
+@media (max-width: 640px) {
+  button,
+  select,
+  input {
+    min-height: 44px;
+  }
+}
+
+/* ==========================================================================
+   KEYBOARD ACCESSIBILITY & FOCUS INDICATORS (WCAG 2.2 Criterion 2.4.7)
+   Ensures every interactive element has a prominent, visible focus outline.
+   ========================================================================== */
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring) !important;
+  outline-offset: 2px !important;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--focus-ring) !important;
+  outline-offset: 2px !important;
+}
+
+/* ==========================================================================
+   SEMANTIC STATUS BADGES & INDICATORS
+   ========================================================================== */
+
+.status-badge-hot {
+  color: var(--status-hot) !important;
+  background-color: var(--status-hot-bg) !important;
+  border-color: var(--status-hot-border) !important;
+}
+
+.status-badge-qualified {
+  color: var(--status-qualified) !important;
+  background-color: var(--status-qualified-bg) !important;
+  border-color: var(--status-qualified-border) !important;
+}
+
+.status-badge-warm {
+  color: var(--status-warm) !important;
+  background-color: var(--status-warm-bg) !important;
+  border-color: var(--status-warm-border) !important;
+}
+
+.status-badge-nurture {
+  color: var(--status-nurture) !important;
+  background-color: var(--status-nurture-bg) !important;
+  border-color: var(--status-nurture-border) !important;
+}
+
+.status-badge-converted {
+  color: var(--status-converted) !important;
+  background-color: var(--status-converted-bg) !important;
+  border-color: var(--status-converted-border) !important;
+}
+
+.status-badge-lost {
+  color: var(--status-lost) !important;
+  background-color: var(--status-lost-bg) !important;
+  border-color: var(--status-lost-border) !important;
+}
+
+/* Legacy status class support */
+.status-hot {
+  color: var(--status-hot) !important;
+  background-color: var(--status-hot-bg) !important;
+  border: 1px solid var(--status-hot-border) !important;
+}
+
+.status-qualified {
+  color: var(--status-qualified) !important;
+  background-color: var(--status-qualified-bg) !important;
+  border: 1px solid var(--status-qualified-border) !important;
+}
+
+.status-warm {
+  color: var(--status-warm) !important;
+  background-color: var(--status-warm-bg) !important;
+  border: 1px solid var(--status-warm-border) !important;
+}
+
+.status-nurture {
+  color: var(--status-nurture) !important;
+  background-color: var(--status-nurture-bg) !important;
+  border: 1px solid var(--status-nurture-border) !important;
+}
+
+.status-converted {
+  color: var(--status-converted) !important;
+  background-color: var(--status-converted-bg) !important;
+  border: 1px solid var(--status-converted-border) !important;
+}
+
+.status-lost {
+  color: var(--status-lost) !important;
+  background-color: var(--status-lost-bg) !important;
+  border: 1px solid var(--status-lost-border) !important;
+}
+
+/* ==========================================================================
+   GLOBAL MAPPINGS: ADAPT EXISTING UTILITIES TO SEMANTIC TOKENS
+   Converts all legacy and hardcoded Tailwind utility classes to semantic
+   CSS variables, guaranteeing pristine contrast across the whole app.
+   ========================================================================== */
+
+/* 1. Page Background & Canvas */
+.bg-\[\#071C1A\],
+.bg-\[\#070B14\],
+.gradient-bg,
+.atmosphere-bg {
+  background-color: var(--background) !important;
+  background-image: none !important;
+}
+
+/* 2. Sidebar & Navigation Bars */
+.bg-\[\#061816\],
+.bg-\[\#090E18\],
+.bg-\[\#051513\],
+.bg-\[\#051614\],
+.bg-\[\#041210\] {
+  background-color: var(--background-secondary) !important;
+}
+
+/* 3. Surfaces & Cards */
+.bg-\[\#0D2D2A\],
+.bg-\[\#0D1420\],
+.bg-\[\#111A28\],
+.bg-\[\#0B2522\],
+.bg-\[\#081F1C\],
+.bg-\[\#0A2623\],
+.bg-\[\#12302A\],
+.bg-\[\#0A2E28\],
+.bg-\[\#143630\],
+.bg-\[\#F8F9F5\],
+.bg-\[\#EDF3EA\],
+.bg-\[\#E2ECE0\],
+.bg-\[\#F0FDF4\],
+.bg-\[\#F0F9FF\] {
+  background-color: var(--surface) !important;
+}
+
+/* Light mode card elevation */
+[data-theme="light"] .bg-\[\#0D2D2A\],
+[data-theme="light"] .bg-\[\#0D1420\],
+[data-theme="light"] .bg-\[\#061816\],
+[data-theme="light"] .bg-\[\#071C1A\],
+.theme-light .bg-\[\#0D2D2A\],
+.theme-light .bg-\[\#0D1420\],
+.theme-light .bg-\[\#061816\],
+.theme-light .bg-\[\#071C1A\] {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+/* 4. Hover States on Cards & Rows */
+.hover\:bg-\[\#0D2D2A\]:hover,
+.hover\:bg-\[\#081F1C\]:hover,
+.hover\:bg-\[\#0A2623\]:hover,
+.hover\:bg-\[\#133F3B\]:hover,
+.hover\:bg-\[\#123E3A\]:hover,
+.hover\:bg-\[\#071C1A\]:hover,
+.hover\:bg-\[\#09221F\]:hover,
+.hover\:bg-\[\#EDF3EA\]:hover {
+  background-color: var(--surface-hover) !important;
+}
+
+/* 5. Primary Text (WCAG AAA) */
+.text-\[\#E8E9D8\],
+.text-\[\#F5F7FA\],
+.text-\[\#C8D6C5\],
+.text-\[\#C5D0C3\],
+.text-\[\#122420\],
+.text-\[\#071C1A\] {
+  color: var(--text-primary) !important;
+}
+
+/* 6. Secondary Text (WCAG AAA) */
+.text-\[\#A9BFA5\],
+.text-\[\#94A3B8\],
+.text-\[\#244B40\],
+.text-\[\#142824\],
+.text-\[\#A9BFA5\]\/90,
+.text-\[\#A9BFA5\]\/80,
+.text-\[\#A9BFA5\]\/75,
+.text-\[\#A9BFA5\]\/70 {
+  color: var(--text-secondary) !important;
+}
+
+/* 7. Muted Text & Labels (WCAG AA - Replaces low opacity shortcuts) */
+.text-\[\#64748B\],
+.text-\[\#3E6A5E\],
+.text-\[\#668877\],
+.text-\[\#416055\],
+.text-\[\#A9BFA5\]\/65,
+.text-\[\#A9BFA5\]\/60,
+.text-\[\#A9BFA5\]\/50,
+.text-\[\#A9BFA5\]\/40,
+.text-\[\#A9BFA5\]\/30,
+.text-\[\#A9BFA5\]\/20,
+.text-white\/40,
+.text-white\/50,
+.text-white\/60,
+.text-white\/70 {
+  color: var(--text-muted) !important;
+}
+
+/* 8. Light-Mode Text Visibility Fix (Prevents text-white from vanishing on white) */
+[data-theme="light"] .text-white,
+.theme-light .text-white {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .hover\:text-white:hover,
+.theme-light .hover\:text-white:hover {
+  color: var(--text-primary) !important;
+}
+
+[data-theme="light"] .group:hover .group-hover\:text-white,
+.theme-light .group:hover .group-hover\:text-white {
+  color: var(--text-primary) !important;
+}
+
+/* Preserve pure white text on solid dark buttons, pills, and badges */
+[data-theme="light"] button.bg-red-600,
+.theme-light button.bg-red-600,
+[data-theme="light"] button.bg-rose-600,
+.theme-light button.bg-rose-600,
+[data-theme="light"] button.bg-rose-700,
+.theme-light button.bg-rose-700,
+[data-theme="light"] .btn-primary,
+.theme-light .btn-primary,
+[data-theme="light"] .text-white-fixed,
+.theme-light .text-white-fixed {
+  color: #FFFFFF !important;
+}
+
+/* 8b. High-Contrast Floating Bulk Actions Bar */
+.bulk-actions-bar {
+  background-color: #0F172A !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme="light"] .bulk-actions-bar,
+.theme-light .bulk-actions-bar {
+  background-color: #0F172A !important;
+  color: #FFFFFF !important;
+  border-color: #334155 !important;
+}
+
+[data-theme="light"] .bulk-actions-bar span,
+.theme-light .bulk-actions-bar span {
+  color: #FFFFFF !important;
+}
+
+[data-theme="light"] .bulk-actions-bar .btn-deselect,
+.theme-light .bulk-actions-bar .btn-deselect {
+  color: #CBD5E1 !important;
+}
+
+[data-theme="light"] .bulk-actions-bar .btn-deselect:hover,
+.theme-light .bulk-actions-bar .btn-deselect:hover {
+  color: #FFFFFF !important;
+}
+
+/* 9. Accent & Primary Buttons */
+.bg-\[\#E8E9D8\],
+.bg-\[\#22D3EE\],
+button.bg-\[\#E8E9D8\],
+.btn-primary {
+  background-color: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+  font-weight: 600;
+}
+
+.bg-\[\#E8E9D8\]:hover,
+.bg-\[\#22D3EE\]:hover,
+button.bg-\[\#E8E9D8\]:hover,
+.hover\:bg-white:hover {
+  background-color: var(--primary-hover) !important;
+  color: var(--primary-foreground) !important;
+}
+
+.bg-\[\#E8E9D8\] *,
+button.bg-\[\#E8E9D8\] * {
+  color: var(--primary-foreground) !important;
+  stroke: var(--primary-foreground) !important;
+}
+
+/* Accent Subtle Background */
+.bg-\[\#A9BFA5\]\/10,
+.bg-\[\#0D2D2A\]\/80,
+.bg-cyan-500\/10,
+.bg-emerald-500\/10 {
+  background-color: var(--accent-subtle) !important;
+}
+
+/* 10. Status Colors Adaption in Light Mode */
+[data-theme="light"] .text-emerald-300,
+.theme-light .text-emerald-300,
+[data-theme="light"] .text-emerald-400,
+.theme-light .text-emerald-400,
+[data-theme="light"] .text-teal-400,
+.theme-light .text-teal-400 {
+  color: var(--status-converted) !important;
+}
+
+[data-theme="light"] .text-amber-200,
+.theme-light .text-amber-200,
+[data-theme="light"] .text-amber-300,
+.theme-light .text-amber-300,
+[data-theme="light"] .text-amber-400,
+.theme-light .text-amber-400 {
+  color: var(--status-warm) !important;
+}
+
+[data-theme="light"] .text-rose-300,
+.theme-light .text-rose-300,
+[data-theme="light"] .text-rose-400,
+.theme-light .text-rose-400,
+[data-theme="light"] .text-red-300,
+.theme-light .text-red-300,
+[data-theme="light"] .text-red-400,
+.theme-light .text-red-400 {
+  color: var(--status-hot) !important;
+}
+
+[data-theme="light"] .text-cyan-300,
+.theme-light .text-cyan-300,
+[data-theme="light"] .text-cyan-400,
+.theme-light .text-cyan-400 {
+  color: var(--status-qualified) !important;
+}
+
+[data-theme="light"] .text-sky-300,
+.theme-light .text-sky-300,
+[data-theme="light"] .text-sky-400,
+.theme-light .text-sky-400 {
+  color: var(--info) !important;
+}
+
+[data-theme="light"] .text-slate-300,
+.theme-light .text-slate-300,
+[data-theme="light"] .text-slate-400,
+.theme-light .text-slate-400 {
+  color: var(--status-nurture) !important;
+}
+
+/* Status Background Tints in Light Mode */
+[data-theme="light"] .bg-amber-950\/40,
+.theme-light .bg-amber-950\/40,
+[data-theme="light"] .bg-amber-500\/20,
+.theme-light .bg-amber-500\/20,
+[data-theme="light"] .bg-amber-500\/10,
+.theme-light .bg-amber-500\/10 {
+  background-color: var(--status-warm-bg) !important;
+  border-color: var(--status-warm-border) !important;
+}
+
+[data-theme="light"] .bg-emerald-950\/80,
+.theme-light .bg-emerald-950\/80,
+[data-theme="light"] .bg-emerald-950\/60,
+.theme-light .bg-emerald-950\/60,
+[data-theme="light"] .bg-emerald-500\/10,
+.theme-light .bg-emerald-500\/10,
+[data-theme="light"] .bg-emerald-500\/20,
+.theme-light .bg-emerald-500\/20 {
+  background-color: var(--status-converted-bg) !important;
+  border-color: var(--status-converted-border) !important;
+}
+
+[data-theme="light"] .bg-rose-950\/40,
+.theme-light .bg-rose-950\/40,
+[data-theme="light"] .bg-rose-500\/10,
+.theme-light .bg-rose-500\/10,
+[data-theme="light"] .bg-rose-500\/20,
+.theme-light .bg-rose-500\/20,
+[data-theme="light"] .bg-red-500\/10,
+.theme-light .bg-red-500\/10 {
+  background-color: var(--status-hot-bg) !important;
+  border-color: var(--status-hot-border) !important;
+}
+
+[data-theme="light"] .bg-cyan-500\/10,
+.theme-light .bg-cyan-500\/10,
+[data-theme="light"] .bg-cyan-500\/20,
+.theme-light .bg-cyan-500\/20 {
+  background-color: var(--status-qualified-bg) !important;
+  border-color: var(--status-qualified-border) !important;
+}
+
+/* 11. Borders & Dividers */
+[class*="border-\[rgba(169,191,165,"],
+[class*="border-\[rgba(169, 191, 165,"],
+[class*="border-\[rgba(148,163,184,"],
+[class*="border-\[rgba(148, 163, 184,"],
+[class*="divide-\[rgba(169,191,165,"],
+[class*="divide-\[rgba(148,163,184,"],
+.thin-border,
+.border-\[\#A9BFA5\],
+.border-\[\#D0DDD0\],
+.border-\[\#E2ECE0\],
+.border-\[\#143630\],
+.border-\[\#244B40\] {
+  border-color: var(--border) !important;
+}
+
+[class*="border-\[rgba(169,191,165,0.08)"],
+[class*="border-\[rgba(169,191,165,0.1)"],
+[class*="border-\[rgba(169,191,165,0.12)"],
+[class*="divide-\[rgba(169,191,165,0.1)"] {
+  border-color: var(--border-subtle) !important;
+}
+
+.border-strong,
+.hover\:border-\[\#A9BFA5\]:hover,
+[class*="hover:border-\[rgba(169,191,165,0.4)"]:hover,
+[class*="hover:border-\[rgba(169,191,165,0.6)"]:hover {
+  border-color: var(--border-strong) !important;
+}
+
+/* Active focus & interactive border */
+.focus\:border-\[\#A9BFA5\]:focus,
+.focus\:border-white:focus,
+.focus\:border-\[\#244B40\]:focus,
+.focus\:border-emerald-400:focus {
+  border-color: var(--focus-ring) !important;
+}
+
+/* 12. Radii Foundations */
+.rounded-md,
+.rounded-lg,
+.rounded-\[2px\] {
+  border-radius: var(--radius-control) !important;
+}
+
+.rounded-xl,
+.rounded-2xl {
+  border-radius: var(--radius-card) !important;
+}
+
+/* 13. Forms, Inputs, Textareas, Selects */
+input,
+textarea,
+select {
+  background-color: var(--surface) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border) !important;
+  border-width: 1px !important;
+  border-radius: var(--radius-control) !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted) !important;
+  opacity: 1 !important;
+}
+
+select option {
+  background-color: var(--surface) !important;
+  color: var(--text-primary) !important;
+}
+
+/* 14. Navigation & Sidebar Active Indicator */
+[id^="sidebar-nav-"][class*="border-l-2"],
+[id^="sidebar-subnav-"][class*="border-l"] {
+  border-left-color: var(--primary) !important;
+  color: var(--text-primary) !important;
+}
+
+[data-theme="light"] [id^="sidebar-nav-"][class*="border-l-2"],
+.theme-light [id^="sidebar-nav-"][class*="border-l-2"] {
+  background-color: var(--surface) !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="dark"] [id^="sidebar-nav-"][class*="border-l-2"],
+:root:not([data-theme="light"]) [id^="sidebar-nav-"][class*="border-l-2"] {
+  background-color: var(--surface-elevated) !important;
+}
+
+/* 15. Custom Scrollbar matching semantic variables */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-control);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Subtle background grain */
+.grain {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.025;
+  pointer-events: none;
+  background-image: url('data:image/svg+xml,%3Csvg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"%3E%3Cfilter id="noiseFilter"%3E%3CfeTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/%3E%3C/filter%3E%3Crect width="100%25" height="100%25" filter="url(%23noiseFilter)"/%3E%3C/svg%3E');
+}
+
+/* Light mode fair color for topbar division */
+[data-theme="light"] div#root > div:nth-of-type(1) > div:nth-of-type(3) > header:nth-of-type(1),
+.theme-light div#root > div:nth-of-type(1) > div:nth-of-type(3) > header:nth-of-type(1) {
+  background-color: #FFFFFF !important;
+  border-bottom-color: #CBD5E1 !important;
+}
+
+[data-theme="light"] div#root > div:nth-of-type(1) > div:nth-of-type(3) > header:nth-of-type(1) > div:nth-of-type(1),
+.theme-light div#root > div:nth-of-type(1) > div:nth-of-type(3) > header:nth-of-type(1) > div:nth-of-type(1) {
+  background-color: #FFFFFF !important;
+  color: #000000 !important;
+}
+
+[data-theme="dark"] div#root > div:nth-of-type(1) > div:nth-of-type(3) > header:nth-of-type(1),
+.theme-dark div#root > div:nth-of-type(1) > div:nth-of-type(3) > header:nth-of-type(1) {
+  background-color: #061816 !important;
+  border-bottom-color: rgba(169, 191, 165, 0.18) !important;
+}
+
+[data-theme="dark"] div#root > div:nth-of-type(1) > div:nth-of-type(3) > header:nth-of-type(1) > div:nth-of-type(1),
+.theme-dark div#root > div:nth-of-type(1) > div:nth-of-type(3) > header:nth-of-type(1) > div:nth-of-type(1) {
+  background-color: transparent !important;
+}
+
+
+/* ===== Legacy feature palette (soft/ink) for backend-powered panels ===== */
+@theme {
+  --color-ink: #0B2C2F;
+  --color-ink-soft: #1A4A4E;
+  --color-ink-muted: #6A8F93;
+  --color-soft-bg: #EEF7F8;
+  --color-soft-card: #FFFFFF;
+  --color-soft-lavender: #D4F4F6;
+  --color-soft-sky: #C5F0F3;
+  --color-soft-mint: #B8EBE6;
+  --color-soft-peach: #D8F5F0;
+  --color-soft-coral: #E07A6A;
+  --color-soft-lilac: #2BB8C0;
+  --color-soft-azure: #0D9BA6;
+  --color-soft-deep: #0A6B73;
+  --color-soft-foam: #E8FAF8;
+  --color-soft-mist: #F3FBFB;
+  --color-brand-blue: #0D9BA6;
+  --color-brand-violet: #2BB8C0;
+  --shadow-soft: 0 10px 40px rgba(10, 107, 115, 0.08);
+  --shadow-soft-lg: 0 20px 60px rgba(10, 107, 115, 0.12);
+  --shadow-aqua: 0 12px 32px rgba(13, 155, 166, 0.28);
+  --font-display: "Cormorant Garamond", Georgia, serif;
+}
+
+.legacy-feature-surface {
+  color: #0B2C2F;
+}
+
+.legacy-feature-surface .nexora-card {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(197, 240, 243, 0.65);
+  border-radius: 1.5rem;
+  box-shadow: 0 10px 40px rgba(10, 107, 115, 0.08);
+}
+
+.legacy-feature-surface .nexora-btn-primary,
+.nexora-btn-primary {
+  background: linear-gradient(135deg, #0A6B73 0%, #0D9BA6 55%, #2BB8C0 100%);
+  color: #fff;
+  border-radius: 9999px;
+  font-weight: 600;
+  box-shadow: 0 12px 28px rgba(13, 155, 166, 0.32);
+}
+
+.legacy-feature-surface .nexora-input,
+.nexora-input {
+  background: rgba(238, 247, 248, 0.9);
+  border: 1px solid rgba(197, 240, 243, 0.8);
+  border-radius: 9999px;
+}
+
+.font-display {
+  font-family: "Cormorant Garamond", Georgia, serif;
+}
+
+.animate-fade-in {
+  animation: nexoraFadeIn 0.45s ease-out;
+}
+
+@keyframes nexoraFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

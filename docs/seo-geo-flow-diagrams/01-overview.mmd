@@ -1,0 +1,27 @@
+flowchart TB
+  B(["Brand settings<br/>website URL · NAP · docs"])
+
+  subgraph CORE["Core path"]
+    direction TB
+    C["Crawl health<br/>POST /api/seo-geo/crawl/start"]
+    S[("Page signals<br/>seo-geo-crawl/")]
+    A["Audit · Re-audit<br/>POST /api/seo-geo/audit"]
+    R["Recommendations<br/>P0–P3 · evidence"]
+    W["Status & auto-fix<br/>PATCH · propose / approve"]
+    C --> S --> A
+    B --> C
+    B --> A
+    A --> R --> W
+  end
+
+  subgraph OPT["Optional"]
+    direction LR
+    RK["Rank tracking"]
+    AI["AI visibility"]
+    GO["Connect Google<br/>GSC + GBP"]
+  end
+
+  B -. optional .-> RK
+  A -. optional .-> RK
+  B -. optional .-> AI
+  GO -. on re-audit .-> A

@@ -17,6 +17,7 @@ const DEFAULT_PROFILE = {
   botName: '',
   instagramAutoReply: true,
   whatsappAutoReply: true,
+  emailAutoReply: true,
   voiceTone: '',
   writingStyle: '',
   vocabulary: [],
@@ -24,6 +25,10 @@ const DEFAULT_PROFILE = {
   audience: '',
   productsFocus: '',
   extraGuidelines: '',
+  websiteUrl: '',
+  businessPhone: '',
+  businessAddress: '',
+  googleBusinessProfileUrl: '',
   updatedAt: null,
   derivedFromDocs: false,
   setupCompletedAt: null,
@@ -75,6 +80,7 @@ function isChannelAutoReplyEnabled(channel) {
   const p = getProfile();
   if (channel === 'instagram') return p.instagramAutoReply !== false;
   if (channel === 'whatsapp') return p.whatsappAutoReply !== false;
+  if (channel === 'email') return p.emailAutoReply !== false;
   return true;
 }
 
@@ -370,6 +376,7 @@ function getStatus() {
     botName: String(profile.botName || '').trim() || null,
     instagramAutoReply: profile.instagramAutoReply !== false,
     whatsappAutoReply: profile.whatsappAutoReply !== false,
+    emailAutoReply: profile.emailAutoReply !== false,
     derivedFromDocs: Boolean(profile.derivedFromDocs),
     updatedAt: profile.updatedAt,
     setupComplete: missing.length === 0,
@@ -426,6 +433,10 @@ function mountRoutes(app, { requireAuth, vertex }) {
         writingStyle: String(body.writingStyle || '').trim(),
         audience: String(body.audience || '').trim(),
         productsFocus: String(body.productsFocus || '').trim(),
+        websiteUrl: String(body.websiteUrl || '').trim(),
+        businessPhone: String(body.businessPhone || '').trim(),
+        businessAddress: String(body.businessAddress || '').trim(),
+        googleBusinessProfileUrl: String(body.googleBusinessProfileUrl || '').trim(),
         vocabulary: Array.isArray(body.vocabulary)
           ? body.vocabulary
           : String(body.vocabulary || '')
@@ -441,6 +452,7 @@ function mountRoutes(app, { requireAuth, vertex }) {
         extraGuidelines: String(body.extraGuidelines || '').trim(),
         instagramAutoReply: body.instagramAutoReply !== false,
         whatsappAutoReply: body.whatsappAutoReply !== false,
+        emailAutoReply: body.emailAutoReply !== false,
       };
 
       const missing = getSetupMissing(patch);
@@ -480,6 +492,7 @@ function mountRoutes(app, { requireAuth, vertex }) {
         'botName',
         'instagramAutoReply',
         'whatsappAutoReply',
+        'emailAutoReply',
         'voiceTone',
         'writingStyle',
         'vocabulary',
@@ -487,6 +500,10 @@ function mountRoutes(app, { requireAuth, vertex }) {
         'audience',
         'productsFocus',
         'extraGuidelines',
+        'websiteUrl',
+        'businessPhone',
+        'businessAddress',
+        'googleBusinessProfileUrl',
       ];
       const patch = {};
       for (const key of allowed) {

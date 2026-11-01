@@ -77,7 +77,8 @@ const PostSchema = new mongoose.Schema({
     linkedinId: String,
     instagramId: String,
     facebookId: String,
-    platforms: [{ type: String, enum: ['linkedin', 'instagram', 'facebook'] }],
+    xId: String,
+    platforms: [{ type: String, enum: ['linkedin', 'instagram', 'facebook', 'x'] }],
     platformResults: { type: mongoose.Schema.Types.Mixed, default: {} },
     error: String,
     userUrn: String
@@ -483,6 +484,7 @@ setInterval(async () => {
                 post.linkedinId = result.linkedinId || post.linkedinId;
                 post.instagramId = result.instagramId || post.instagramId;
                 post.facebookId = result.facebookId || post.facebookId;
+                post.xId = result.xId || post.xId;
                 post.status = result.status;
                 post.error = result.error;
                 if (result.status === 'published') post.publishedAt = new Date();
@@ -532,6 +534,10 @@ app.get('/api/ai/status', requireApp, (_req, res) => {
 });
 
 app.post('/api/ai/content-ideas', requireApp, aiLimiter, wrapAi((req) => vertex.generateContentIdeas(req.body.details || req.body)));
+app.post('/api/ai/topic-social-pack', requireApp, aiLimiter, wrapAi((req) => {
+    const b = req.body.details || req.body;
+    return vertex.generateTopicSocialPack(b);
+}));
 app.post('/api/ai/image', requireApp, aiLimiter, wrapAi(async (req) => ({ imageUrl: await vertex.generateImage(req.body.prompt || '') })));
 app.post('/api/ai/video', requireApp, aiLimiter, wrapAi(async (req) => ({
     videoUrl: await vertex.generatePromoVideo(req.body.textPrompt || '', req.body.imagePrompt || '')
@@ -562,6 +568,9 @@ leadsCrm.mountRoutes(app, { requireAuth: requireApp });
 const companyKnowledge = require('./companyKnowledge');
 companyKnowledge.mountRoutes(app, { requireAuth: requireApp, vertex });
 
+const seoGeo = require('./seoGeo');
+seoGeo.mountRoutes(app, { requireAuth: requireApp, vertex });
+
 // --- Instagram Graph API (comments + DMs) ---
 const instagram = require('./instagram');
 
@@ -579,13 +588,40 @@ whatsapp.mountRoutes(app, { vertex, leadAgent, requireAuth: requireApp });
 const facebook = require('./facebook');
 facebook.mountRoutes(app, { vertex, requireAuth: requireApp });
 
+const xChannel = require('./x');
+xChannel.mountRoutes(app, { vertex, requireAuth: requireApp });
+
+// --- Email (SMTP inbound webhook + outbound) ---
+const emailChannel = require('./email');
+emailChannel.mountRoutes(app, { vertex, leadAgent, requireAuth: requireApp });
+
+// --- Google Ads lead forms, ads landing (UTM), Sheets export ---
+const googleAds = require('./googleAds');
+const googleSheets = require('./googleSheets');
+const adsLanding = require('./adsLanding');
+adsLanding.mountRoutes(app);
+googleAds.mountRoutes(app, { vertex, leadAgent, requireAuth: requireApp });
+googleSheets.mountRoutes(app, requireApp);
+app.use('/l', express.static(path.join(__dirname, 'public')));
+
 // --- Dual agents: Competitor Intelligence + Lead Growth ---
 const competitorAgent = require('./competitorAgent');
 const leadGrowthAgent = require('./leadGrowthAgent');
 competitorAgent.mountRoutes(app, { vertex, requireAuth: requireApp, aiLimiter });
 leadGrowthAgent.mountRoutes(app, { vertex, requireAuth: requireApp, aiLimiter });
 
-leadsCrm.setReplyDeps({ whatsapp, instagram });
+leadsCrm.setReplyDeps({ whatsapp, instagram, email: emailChannel });
+
+const leadLifecycle = require('./leadLifecycle');
+const LIFECYCLE_TICK_MS = Number(process.env.LEAD_LIFECYCLE_TICK_MS) || 5 * 60 * 1000;
+setInterval(async () => {
+  try {
+    await leadLifecycle.scanAllLeads(leadsCrm);
+    await leadLifecycle.processDueFollowUps(leadsCrm);
+  } catch (err) {
+    console.warn('[Lifecycle] tick', err.message);
+  }
+}, LIFECYCLE_TICK_MS);
 
 app.get('/api/health', (req, res) => {
     res.json({
@@ -595,7 +631,15 @@ app.get('/api/health', (req, res) => {
         vertex: vertex.getStatus(),
         instagram: instagram.getStatus(),
         facebook: facebook.getStatus(),
+        x: xChannel.getStatus(),
+        linkedin: {
+            configured: Boolean(CLIENT_ID && CLIENT_SECRET),
+        },
         whatsapp: whatsapp.getStatus(),
+        email: emailChannel.getStatus(),
+        googleAds: googleAds.getStatus(),
+        googleSheets: googleSheets.getStatus(),
+        adsLanding: adsLanding.getStatus(),
         leadsCrm: { mongo: leadsCrm.mongoReady() },
         company: companyKnowledge.getStatus(),
         mongo: mongoose.connection.readyState === 1,
@@ -605,10 +649,10 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// Serve built SPA in production (or whenever dist exists)
+// Serve built SPA in production only — in dev, use Vite on :3000 so you never get a stale dist bundle.
 const distDir = path.join(__dirname, '..', 'dist');
-if (fs.existsSync(distDir)) {
-    app.use(express.static(distDir, { index: false, maxAge: IS_PROD ? '1h' : 0 }));
+if (IS_PROD && fs.existsSync(distDir)) {
+    app.use(express.static(distDir, { index: false, maxAge: '1h' }));
     app.get('*', (req, res, next) => {
         if (
             req.path.startsWith('/api') ||
@@ -621,9 +665,19 @@ if (fs.existsSync(distDir)) {
             if (err) next();
         });
     });
+} else if (!IS_PROD) {
+    app.get('/', (_req, res) => {
+        res.type('html').send(
+            '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Nexora API</title></head><body style="font-family:system-ui;padding:2rem">' +
+            '<h1>Nexora API is running</h1>' +
+            '<p>Open the app at <a href="https://localhost:3000">https://localhost:3000</a> (run <code>npm run dev</code> from the Nexora folder).</p>' +
+            '<p>Do not use port 4000 for the UI in development — it would serve an old production build.</p>' +
+            '</body></html>'
+        );
+    });
 } else {
     app.get('/', (_req, res) => {
-        res.send('<h1>Nexora API</h1><p>API is running. Build the UI with <code>npm run build</code> to serve the SPA from this process.</p>');
+        res.send('<h1>Nexora API</h1><p>Build the UI with <code>npm run build</code> to serve the SPA from this process.</p>');
     });
 }
 
@@ -648,5 +702,10 @@ app.listen(PORT, () => {
         console.log('[Facebook] status:', JSON.stringify(facebook.getStatus()));
     } catch (e) {
         console.warn('[Facebook] not ready:', e.message);
+    }
+    try {
+        console.log('[X] status:', JSON.stringify(xChannel.getStatus()));
+    } catch (e) {
+        console.warn('[X] not ready:', e.message);
     }
 });

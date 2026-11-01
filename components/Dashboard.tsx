@@ -8,6 +8,7 @@ import { getCompanyStatus, type CompanyStatus } from '../services/companyService
 import { getInstagramStatus, type InstagramStatus } from '../services/instagramService';
 import InstagramConnect from './InstagramConnect';
 import FacebookConnect from './FacebookConnect';
+import SeoGeoPanel from '../src/components/app/SeoGeoPanel';
 
 interface DashboardProps {
   setCurrentView: (view: View) => void;
@@ -22,15 +23,6 @@ const DEMO_STEPS = [
   { id: 'qualify', label: 'Capture a booking-intent lead', view: 'automation' as View },
   { id: 'handoff', label: 'Demo complaint → Take over', view: 'automation' as View },
   { id: 'ig', label: 'Connect Instagram (when Meta app ready)', view: 'automation' as View },
-];
-
-const SEO_GEO_ITEMS = [
-  { id: 'gbp', label: 'Google Business Profile claimed & complete', hint: 'Local pack + AI local answers' },
-  { id: 'nap', label: 'NAP consistency (name, address, phone)', hint: 'Same facts everywhere' },
-  { id: 'faq', label: 'Service / FAQ pages with answer-first copy', hint: 'SEO + GEO citability' },
-  { id: 'schema', label: 'LocalBusiness / FAQ schema planned', hint: 'Attract engine · Crawl' },
-  { id: 'reviews', label: 'Review collection cadence', hint: 'Trust signals for AI search' },
-  { id: 'knowledge', label: 'Approved knowledge matches public site', hint: 'No contradictory facts' },
 ];
 
 const TEMP_FILTERS: Array<'all' | LeadTemperature> = ['all', 'hot', 'warm', 'cold'];
@@ -49,14 +41,6 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
   const [company, setCompany] = useState<CompanyStatus | null>(null);
   const [ig, setIg] = useState<InstagramStatus | null>(null);
   const [demoChecks, setDemoChecks] = useState<Record<string, boolean>>(loadDemoChecks);
-  const [seoChecks, setSeoChecks] = useState<Record<string, boolean>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('tecavy-seo-geo') || '{}');
-    } catch {
-      return {};
-    }
-  });
-
   const refreshLeads = useCallback(() => {
     void fetchLeads().then((list) => setLeads(list.length ? list : getLeads()));
   }, []);
@@ -94,16 +78,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
     });
   };
 
-  const toggleSeo = (id: string) => {
-    setSeoChecks((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      localStorage.setItem('tecavy-seo-geo', JSON.stringify(next));
-      return next;
-    });
-  };
-
   const demoDone = DEMO_STEPS.filter((s) => demoChecks[s.id]).length;
-  const seoDone = SEO_GEO_ITEMS.filter((s) => seoChecks[s.id]).length;
 
   // Auto-tick brain/rag from live status
   useEffect(() => {
@@ -227,35 +202,12 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Card>
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h2 className="text-lg font-bold text-ink">Attract · SEO / GEO</h2>
-              <p className="text-xs text-ink-muted">
-                Discoverability checklist — not a ranking guarantee ({seoDone}/{SEO_GEO_ITEMS.length})
-              </p>
-            </div>
-            <span className="text-[10px] font-bold uppercase tracking-wide bg-soft-mint text-soft-deep px-2 py-1 rounded-full">
-              P1 · Crawl
-            </span>
-          </div>
-          <ul className="space-y-2.5">
-            {SEO_GEO_ITEMS.map((item) => (
-              <li key={item.id} className="flex items-start gap-2 bg-soft-bg/60 rounded-2xl px-3 py-2.5">
-                <input
-                  type="checkbox"
-                  checked={Boolean(seoChecks[item.id])}
-                  onChange={() => toggleSeo(item.id)}
-                  className="mt-1 accent-[#0A6B73]"
-                />
-                <div>
-                  <p className="text-sm font-semibold text-ink">{item.label}</p>
-                  <p className="text-[11px] text-ink-muted">{item.hint}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Card>
+        <SeoGeoPanel
+          variant="legacy"
+          isLight
+          onLegacyAdmin={() => setCurrentView('admin')}
+          className="!rounded-2xl !shadow-none border-soft-sky/40"
+        />
 
         <div className="space-y-5">
           <InstagramConnect compact onSynced={() => refreshLeads()} />

@@ -1,0 +1,30 @@
+flowchart TB
+  subgraph Tabs["SeoGeoPanel tabs"]
+    T1[Audit]
+    T2[Crawl health]
+    T3[Rank tracking]
+    T4[AI visibility]
+    T5[Auto-fix]
+  end
+  subgraph API["/api/seo-geo/*"]
+    A1["/audit · /recommendations"]
+    A2["/crawl/start · /crawl/jobs"]
+    A3["/keywords · /rankings/*"]
+    A4["/citations/* · /vertex-status"]
+    A5["/fixes/*"]
+  end
+  subgraph Data["Persistence"]
+    D[("backend/data/company/<br/>JSON files")]
+  end
+  T1 --> A1
+  T2 --> A2
+  T3 --> A3
+  T4 --> A4
+  T5 --> A5
+  A1 --> D
+  A2 --> D
+  A3 --> D
+  A4 --> D
+  A5 --> D
+  CK["companyKnowledge.js<br/>Brand profile"] --> A1
+  CK --> A2

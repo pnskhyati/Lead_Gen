@@ -6,11 +6,13 @@ One application: marketing copilot + social scheduling + lead pipeline + **Googl
 
 ```
 Nexora/
-  components/     # Insights, Campaigns, Creative Lab, Leads
-  linkedin/       # Social Hub UI
-  backend/        # Express API (auth, OAuth, schedule, CRM, Vertex)
-  App.tsx
+  src/                 # ManasaParuchuri100/Nexora UI shell (Marketing OS)
+    components/        # Landing + app chrome (sidebar, topbar, views)
+    legacy/            # Live backend-powered feature panels (CRM, agents, studio…)
+  backend/             # Express API (auth, OAuth, CRM, Vertex, Meta, agents)
 ```
+
+Frontend nav maps to live APIs: Overview, Inbox, Leads, Content, Campaigns, **Agents**, **Channels** (IG/FB/WhatsApp), Analytics, Admin.
 
 ## Production checklist
 

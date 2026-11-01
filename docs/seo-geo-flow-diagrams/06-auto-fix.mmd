@@ -1,0 +1,13 @@
+flowchart TD
+  REC["Recommendation ID<br/>from Audit tab"] --> PROP["Propose fix<br/>POST /fixes/propose"]
+  PROP --> DRAFT["Draft stored<br/>title · meta · schema · manual"]
+  DRAFT --> REV{"Human review"}
+  REV -->|Reject| END1([Rejected])
+  REV -->|Approve| APP["POST /fixes/:id/approve"]
+  APP --> CMS{"WordPress configured?"}
+  CMS -->|Yes + page ID| WP["Apply via REST<br/>title / excerpt"]
+  CMS -->|No| MAN["Approved — manual CMS"]
+  WP --> DONE([Applied])
+  MAN --> DONE
+  WP --> RB["Rollback snapshot<br/>POST /rollback"]
+  MAN --> RB

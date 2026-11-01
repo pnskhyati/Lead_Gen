@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Talk to us — Nexora</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 520px; margin: 48px auto; padding: 0 20px; color: #14253b; }
+      h1 { font-size: 1.75rem; }
+      p { line-height: 1.6; color: #526879; }
+      a.btn { display: inline-block; margin-top: 16px; background: #087f87; color: #fff; padding: 12px 20px; border-radius: 9px; text-decoration: none; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <h1>Thanks for clicking through</h1>
+    <p>Chat with our AI assistant — your campaign tags are preserved so we can qualify and follow up correctly.</p>
+    <a class="btn" id="go">Start conversation</a>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      params.set('ads', '1');
+      const base = document.body.dataset.frontend || '/';
+      document.getElementById('go').href = base.replace(/\/$/, '') + '/?' + params.toString() + '#chat';
+    </script>
+  </body>
+</html>

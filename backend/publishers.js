@@ -7,6 +7,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const igStore = require('./instagramStore');
 const fbStore = require('./facebookStore');
+const xModule = require('./x');
 
 const GRAPH = 'https://graph.facebook.com/v22.0';
 
@@ -158,14 +159,25 @@ async function publishInstagram(post) {
 /**
  * Dispatch publish for one platform. linkedinPublishFn injected to avoid circular requires.
  */
+function normalizePlatform(platform) {
+  const p = String(platform || '').toLowerCase();
+  if (p === 'x' || p === 'twitter' || p.includes('twitter')) return 'x';
+  if (p === 'linkedin') return 'linkedin';
+  if (p === 'instagram') return 'instagram';
+  if (p === 'facebook') return 'facebook';
+  return p;
+}
+
 async function publishToPlatform(platform, post, { linkedinPublishFn, userUrn }) {
-  if (platform === 'linkedin') {
+  const key = normalizePlatform(platform);
+  if (key === 'linkedin') {
     if (!linkedinPublishFn) throw new Error('LinkedIn publisher unavailable');
     const id = await linkedinPublishFn(post, userUrn);
     return { id, platform: 'linkedin' };
   }
-  if (platform === 'facebook') return publishFacebook(post);
-  if (platform === 'instagram') return publishInstagram(post);
+  if (key === 'facebook') return publishFacebook(post);
+  if (key === 'instagram') return publishInstagram(post);
+  if (key === 'x') return xModule.publishTweet(post);
   throw new Error(`Unknown platform: ${platform}`);
 }
 
@@ -178,22 +190,23 @@ async function publishPostToPlatforms(post, { linkedinPublishFn, userUrn }) {
   const errors = [];
 
   for (const platform of platforms) {
+    const key = normalizePlatform(platform);
     try {
       const result = await publishToPlatform(platform, post, { linkedinPublishFn, userUrn });
-      platformResults[platform] = {
+      platformResults[key] = {
         status: 'published',
         id: result.id,
         at: new Date().toISOString(),
       };
     } catch (err) {
       const message = err.response?.data?.error?.message || err.message;
-      platformResults[platform] = {
+      platformResults[key] = {
         status: 'failed',
         error: message,
         at: new Date().toISOString(),
       };
-      errors.push(`${platform}: ${message}`);
-      console.error(`[Publish:${platform}]`, message);
+      errors.push(`${key}: ${message}`);
+      console.error(`[Publish:${key}]`, message);
     }
   }
 
@@ -208,6 +221,7 @@ async function publishPostToPlatforms(post, { linkedinPublishFn, userUrn }) {
     linkedinId: platformResults.linkedin?.id,
     instagramId: platformResults.instagram?.id,
     facebookId: platformResults.facebook?.id,
+    xId: platformResults.x?.id,
   };
 }
 

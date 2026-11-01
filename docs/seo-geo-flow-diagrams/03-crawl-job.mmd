@@ -1,0 +1,18 @@
+stateDiagram-v2
+  [*] --> queued: POST /crawl/start
+  queued --> running: worker picks job
+  running --> completed: URLs fetched OK
+  running --> failed: error / budget / network
+  completed --> [*]
+  failed --> [*]
+
+  note right of running
+    Sitemap + BFS discovery
+    robots.txt · SSRF guards
+    rate limits · URL budget
+  end note
+
+  note right of completed
+    Next Re-audit merges
+    page-level signals
+  end note

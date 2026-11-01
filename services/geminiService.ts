@@ -51,6 +51,40 @@ export const generateContentIdeas = async (details: CampaignDetails): Promise<Ge
   return postAi<GeneratedContent>('/api/ai/content-ideas', { details });
 };
 
+export type TopicSocialPost = {
+  platform: string;
+  viralFormat: string;
+  whyThisFormat: string;
+  content: string;
+  hashtags: string[];
+  imagePrompt: string;
+  aspectRatio?: string;
+};
+
+export type TopicSocialPack = {
+  topicSummary: string;
+  nicheAudience: string;
+  posts: TopicSocialPost[];
+};
+
+export type TopicSocialPackRequest = {
+  topic: string;
+  product?: string;
+  audience?: string;
+  platforms?: string[];
+  postCount?: number;
+  voiceMode?: string;
+  customTone?: string;
+  tone?: string;
+  formatHint?: string;
+};
+
+export const generateTopicSocialPack = async (
+  details: TopicSocialPackRequest
+): Promise<TopicSocialPack> => {
+  return postAi<TopicSocialPack>('/api/ai/topic-social-pack', { details });
+};
+
 export const generateImage = async (prompt: string): Promise<string> => {
   const data = await postAi<{ imageUrl: string }>('/api/ai/image', { prompt });
   return data.imageUrl;

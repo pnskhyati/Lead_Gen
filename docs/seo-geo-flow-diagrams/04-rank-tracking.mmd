@@ -1,0 +1,22 @@
+flowchart LR
+  subgraph Input
+    KW["Add keyword<br/>POST /keywords"]
+  end
+  subgraph Sync["POST /rankings/sync"]
+    direction TB
+    SYNC["Sync job"]
+  end
+  subgraph Sources
+    GSC["Google Search Console<br/><small>query avg. position</small>"]
+    SERP["SerpAPI optional<br/><small>sampled SERP</small>"]
+  end
+  subgraph Output
+    SNAP[("Snapshots JSON")]
+    DASH["Dashboard<br/>GET /rankings/dashboard"]
+  end
+  KW --> SYNC
+  SYNC --> GSC
+  SYNC --> SERP
+  GSC --> SNAP
+  SERP --> SNAP
+  SNAP --> DASH
