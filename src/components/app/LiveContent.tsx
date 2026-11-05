@@ -1,11 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import CreativeLabView, { type CreativeLiveGenerateFn } from './CreativeLabView';
+import { buildHeroImagePrompt, composeAdImagePrompt } from './creative/visualBriefBuilder';
+import {
+  buildInstagramCarouselPrompts,
+  isInstagramCarouselContent,
+  isInstagramPlatform,
+} from './creative/instagramCarousel';
+import {
+  formatTopicSocialPackForSchedule,
+  mapTopicSocialToVariation,
+} from './creative/socialPostFormat';
 import SocialHubView from './SocialHubView';
 import type { GeneratedAsset, ScheduledPost, SocialAccount, SubCategory } from '../../types';
 import type { GeneratedVariation } from './creative/OutputWorkspace';
 import type { BrandContext } from './creative/BrandContextBanner';
 import {
   generateContentIdeas,
+  generateImage,
   generateTopicSocialPack,
   type TopicSocialPost,
 } from '../../legacy/services/geminiService';
@@ -48,29 +59,6 @@ function resolveSocialPlatforms(channel: string): string[] {
   return [channel];
 }
 
-function formatTopicSocialVariation(
-  post: TopicSocialPost,
-  meta: { topicSummary: string; nicheAudience: string },
-  index: number
-): string {
-  const tags = (post.hashtags || [])
-    .map((t) => (t.startsWith('#') ? t : `#${t}`))
-    .join(' ');
-  return [
-    `[${post.platform.toUpperCase()} · ${post.viralFormat}]`,
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    index === 0 && meta.topicSummary ? `Topic: ${meta.topicSummary}` : '',
-    index === 0 && meta.nicheAudience ? `Niche audience: ${meta.nicheAudience}` : '',
-    `Why this layout: ${post.whyThisFormat}`,
-    '',
-    post.content,
-    tags ? `\nHashtags: ${tags}` : '',
-    post.aspectRatio ? `\nRecommended aspect: ${post.aspectRatio}` : '',
-    post.imagePrompt ? `\nVisual / asset direction:\n${post.imagePrompt}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
 
 async function fetchLinkedInConnected(): Promise<boolean> {
   try {
@@ -162,10 +150,147 @@ export default function LiveContent({
     });
   }, []);
 
+  const attachGeneratedImages = useCallback(
+    async (
+      variations: GeneratedVariation[],
+      opts: {
+        topic: string;
+        brand: BrandContext;
+        formPrompt?: string;
+        visualImageMode?: 'per-platform' | 'shared';
+        visualDirection?: string;
+      }
+    ) => {
+      if (!variations.length) return variations;
+
+      const sharedMode = opts.visualImageMode === 'shared';
+
+      if (sharedMode) {
+        const seedDirection =
+          opts.visualDirection?.trim() ||
+          variations.map((v) => v.imagePrompt).find(Boolean) ||
+          '';
+        const sharedPrompt = composeAdImagePrompt({
+          topic: opts.topic,
+          product: opts.brand.productName,
+          audience: opts.brand.audience,
+          aiVisualDirection: seedDirection,
+          formPrompt: opts.formPrompt,
+        });
+        try {
+          const sharedUrl = await generateImage(sharedPrompt);
+          for (const v of variations) {
+            v.imagePrompt = sharedPrompt;
+            v.imageUrl = sharedUrl;
+            v.imageUrls = undefined;
+            v.carouselImagePrompts = undefined;
+            v.sharedCampaignImage = true;
+          }
+        } catch {
+          /* text-only; user can render manually */
+        }
+        return variations;
+      }
+
+      for (const v of variations) {
+        const platform = v.platform || v.versionLabel || '';
+        const isIg = isInstagramPlatform(platform);
+        const carouselPrompts = buildInstagramCarouselPrompts(v.content || '', {
+          topic: opts.topic,
+          product: opts.brand.productName,
+          audience: opts.brand.audience,
+          aiVisualDirection: v.imagePrompt,
+          fromModel: v.carouselImagePrompts,
+        });
+
+        if (isIg && carouselPrompts.length >= 2) {
+          v.carouselImagePrompts = carouselPrompts;
+          const urls: string[] = [];
+          for (let c = 0; c < carouselPrompts.length; c++) {
+            try {
+              const url = await generateImage(carouselPrompts[c]!);
+              urls.push(url);
+            } catch {
+              /* skip failed frame; user can Regenerate per slide */
+            }
+          }
+          if (urls.length) {
+            v.imageUrls = urls;
+            v.imageUrl = urls[0];
+            v.imagePrompt = v.carouselImagePrompts[0];
+          }
+          continue;
+        }
+
+        v.imagePrompt = composeAdImagePrompt({
+          topic: opts.topic,
+          product: opts.brand.productName,
+          audience: opts.brand.audience,
+          aiVisualDirection: v.imagePrompt,
+          formPrompt: opts.formPrompt,
+        });
+        if (isIg && isInstagramCarouselContent(v.content || '')) {
+          v.imagePrompt = v.imagePrompt.replace(
+            'Aspect ratio 16:9 landscape',
+            'Aspect ratio 4:5 vertical portrait'
+          );
+        }
+
+        try {
+          v.imageUrl = await generateImage(v.imagePrompt);
+        } catch {
+          /* keep text; user can Regenerate image per tab */
+        }
+      }
+
+      return variations;
+    },
+    []
+  );
+
   const liveGenerate: CreativeLiveGenerateFn = useCallback(async ({ category, count, customPrompt, brandContext: brand, formsState }) => {
     const social = formsState.socialForm;
     const topicFromForm = [social.coreHook, social.keyTakeaways].filter(Boolean).join('\n').trim();
     const topic = (customPrompt || topicFromForm || '').trim();
+    const visualImageMode = social.visualImageMode ?? 'per-platform';
+    const imageOptsBase = {
+      brand,
+      visualImageMode,
+      visualDirection: social.visualDirection,
+    };
+
+    if (category === 'Hero Brief' || category === 'Product Render' || category === 'Brand Specimen') {
+      const b = formsState.heroBriefForm;
+      const visualTopic = [customPrompt, b.focalSubject, b.aesthetic].filter(Boolean).join('. ').trim();
+      const platforms = resolveSocialPlatforms(social.platform || 'All platforms (multi-channel pack)');
+      const formPrompt = buildHeroImagePrompt(formsState);
+
+      const pack = await generateTopicSocialPack({
+        topic: visualTopic || `${category} for ${brand.productName}`,
+        product: brand.productName,
+        audience: brand.audience,
+        platforms,
+        postCount: Math.min(platforms.length, Math.max(1, count)),
+        voiceMode: 'custom',
+        customTone: brand.brandVoice,
+        formatHint: social.format || 'Paid social / feed post with hero visual',
+      });
+
+      const posts = pack.posts?.length ? pack.posts : [];
+      if (posts.length) {
+        const mapped = posts.map((post, i) =>
+          mapTopicSocialToVariation(post, pack, i, {
+            imagePrompt: post.imagePrompt || formPrompt,
+          })
+        );
+        return attachGeneratedImages(mapped, {
+          ...imageOptsBase,
+          topic: visualTopic || topic,
+          formPrompt,
+        });
+      }
+      throw new Error('Vertex returned no posts for this visual brief. Try a clearer prompt or check /api/ai/status.');
+    }
 
     if (category === 'Social Post' && topic) {
       const platforms = resolveSocialPlatforms(social.platform);
@@ -187,13 +312,10 @@ export default function LiveContent({
         : [];
 
       if (posts.length) {
-        return posts.map((post, i) => ({
-          id: `live-${Date.now()}-${i}`,
-          versionLabel: `${post.platform.toUpperCase()} · ${post.viralFormat}`,
-          content: formatTopicSocialVariation(post, pack, i),
-          imagePrompt: post.imagePrompt,
-        }));
+        const mapped = posts.map((post, i) => mapTopicSocialToVariation(post, pack, i));
+        return attachGeneratedImages(mapped, { ...imageOptsBase, topic });
       }
+      throw new Error('Vertex returned no posts for this topic. Try a clearer prompt or check /api/ai/status.');
     }
 
     const platform =
@@ -222,20 +344,13 @@ export default function LiveContent({
       const imagePrompt = prompts[i % Math.max(prompts.length, 1)] || social.visualDirection;
       list.push({
         id: `live-${Date.now()}-${i}`,
-        versionLabel: `VERSION ${String(i + 1).padStart(2, '0')} — ${category.toUpperCase()}`,
-        content: [
-          `【${category} · ${brand.productName}】`,
-          caption,
-          ideas.videoScript && i === 0 ? `\nVideo / script angle:\n${ideas.videoScript}` : '',
-          imagePrompt ? `\nVisual direction:\n${imagePrompt}` : '',
-        ]
-          .filter(Boolean)
-          .join('\n\n'),
+        versionLabel: `${category} ${i + 1}`,
+        content: String(caption || '').trim(),
         imagePrompt,
       });
     }
     return list;
-  }, []);
+  }, [attachGeneratedImages]);
 
   const liveGenerateDraft = useCallback(async (prompt: string, platforms: string[]) => {
     const topic = prompt.trim();
@@ -262,9 +377,7 @@ export default function LiveContent({
           customTone: brandContext?.brandVoice || 'professional',
         });
         if (pack.posts?.length) {
-          return pack.posts
-            .map((post, i) => formatTopicSocialVariation(post, pack, i))
-            .join('\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n');
+          return formatTopicSocialPackForSchedule(pack.posts, pack, mapped);
         }
       } catch (packErr) {
         const msg = packErr instanceof Error ? packErr.message : String(packErr);
@@ -353,6 +466,7 @@ export default function LiveContent({
         onNotify?.('Asset saved', `"${asset.title}" added to your content library.`);
       }}
       liveGenerate={liveGenerate}
+      liveRenderImage={generateImage}
       initialBrandContext={brandContext}
     />
   );

@@ -59,6 +59,7 @@ export type TopicSocialPost = {
   hashtags: string[];
   imagePrompt: string;
   aspectRatio?: string;
+  carouselImagePrompts?: string[];
 };
 
 export type TopicSocialPack = {

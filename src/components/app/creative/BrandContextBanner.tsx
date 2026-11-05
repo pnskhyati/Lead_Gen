@@ -10,12 +10,13 @@ export interface BrandContext {
   brandConstraints: string;
 }
 
+/** Placeholder until workspace company profile loads (Live shell). */
 export const DEFAULT_BRAND_CONTEXT: BrandContext = {
-  productName: 'Nexora Atelier OS',
-  brandVoice: 'Quiet · Precise · Editorial · Premium',
-  audience: 'Creative directors · Studio founders',
-  visualLanguage: 'Minimal · Architectural · Wabi-Sabi',
-  brandConstraints: 'No hype · No excessive emojis · No buzzwords'
+  productName: 'Your brand',
+  brandVoice: 'Clear · Confident · Helpful',
+  audience: 'Your target customers',
+  visualLanguage: 'Clean · On-brand · Campaign-ready',
+  brandConstraints: 'No invented pricing or medical claims',
 };
 
 interface BrandContextBannerProps {

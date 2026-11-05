@@ -18,17 +18,26 @@ const FORCE_VERTEX =
 const API_KEY = USE_GEMINI_API ? GEMINI_API_KEY : VERTEX_API_KEY || (FORCE_VERTEX ? '' : GEMINI_API_KEY);
 const TEXT_MODEL =
   process.env.VERTEX_TEXT_MODEL ||
-  (USE_GEMINI_API && GEMINI_API_KEY ? 'gemini-3.8-flash' : 'gemini-2.5-flash');
+  (USE_GEMINI_API && GEMINI_API_KEY ? 'gemini-3.8-flash' : 'gemini-3-flash-preview');
 const IMAGE_MODEL = process.env.VERTEX_IMAGE_MODEL || 'gemini-2.5-flash-image';
 
-/** Google AI API (API key) model IDs differ from Vertex; map retired names. */
+/** Google AI API (API key) model IDs differ from Vertex / Agent Platform; map retired names. */
 function resolveTextModel() {
   if (USE_GEMINI_API && GEMINI_API_KEY && !FORCE_VERTEX) {
     const legacy = new Set(['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3.8-flash']);
     return legacy.has(TEXT_MODEL) ? 'gemini-3.8-flash' : TEXT_MODEL;
   }
-  const vertexLegacy = new Set(['gemini-flash-latest', 'gemini-3.8-flash']);
-  return vertexLegacy.has(TEXT_MODEL) ? 'gemini-2.5-flash' : TEXT_MODEL;
+  // Gemini Enterprise / Agent Platform: gemini-2.5-* is not published in many projects; use global + gemini-3-flash-preview.
+  const vertexUnavailable = new Set([
+    'gemini-flash-latest',
+    'gemini-3.8-flash',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-001',
+  ]);
+  if (vertexUnavailable.has(TEXT_MODEL)) return 'gemini-3-flash-preview';
+  return TEXT_MODEL;
 }
 const VIDEO_MODEL = process.env.VERTEX_VIDEO_MODEL || 'veo-3.1-fast-generate-preview';
 
@@ -150,7 +159,17 @@ async function generateJson(prompt, responseSchema, systemInstruction) {
 
 async function generateImage(prompt) {
   const ai = getClient();
-  const fullPrompt = `Create a high-quality marketing visual. ${prompt}`;
+  const fullPrompt = `You are generating ONE final ad hero image for a marketing campaign. Obey the scene description literally (location, objects, industry, mood, camera).
+
+${prompt}
+
+Requirements:
+- Photorealistic, campaign-ready, 16:9 composition unless the brief says otherwise.
+- Show exactly the business context in the brief (if it says dental clinic, show a believable dental consultation space; if SaaS, show the described product scene).
+- Do not substitute a generic unrelated office or CRM dashboard unless the brief asks for that.
+- CRITICAL: Do not render any words, letters, slogans, or headline text in the image (no captions, no "PRECISION", no brand taglines). Headlines belong in the social post, not baked into the photo.
+- If a screen appears, show abstract charts/UI only — no readable logos or product names on the display.
+- No watermarks, no garbled typography, no split-screen collage.`;
   // Vertex image models require an explicit Content role (user | model).
   const contents = [{ role: 'user', parts: [{ text: fullPrompt }] }];
 
@@ -241,11 +260,17 @@ LinkedIn — pick ONE per post: document/PDF carousel slide copy (5–8 slides a
 
 Facebook (Page) — pick ONE: conversational story + question; short native video/Reels script (hook in first line); shareable listicle; community poll framing; link teaser with curiosity gap. Favor warmth and shareability over corporate jargon.
 
-Instagram / Threads — pick ONE: Reels script (0–3s hook, beats, on-screen text cues); carousel slide copy (slide 1 hook, slides 2–6 value, final CTA); single-image caption with line breaks + save-worthy tips; before/after or myth-bust carousel. Specify square or 4:5 visual direction in imagePrompt.
+Instagram / Threads — pick ONE: Reels script (0–3s hook, beats, on-screen text cues); carousel (6 cards max); single-image caption with line breaks + save-worthy tips; before/after or myth-bust carousel. Specify square or 4:5 visual direction in imagePrompt.
 
-X (Twitter) — pick ONE: 6–10 tweet thread (label tweets T1, T2…); single punchy post under 280 chars; hot take + quote-tweet bait; list thread with emoji bullets sparingly. Optimize for replies and reposts.
+X (Twitter) — pick ONE: 4–8 tweet thread; single punchy post under 280 chars; hot take + quote-tweet bait; list thread with emoji bullets sparingly. Optimize for replies and reposts.
 
-Each post must be a DIFFERENT layout/format. Respect platform character norms. Hashtags: LinkedIn 3–5, Instagram 8–15, Facebook 2–5, X 1–3.`;
+Each post must be a DIFFERENT layout/format. Respect platform character norms. Hashtags: LinkedIn 3–5, Instagram 8–15, Facebook 2–5, X 1–3.
+
+CONTENT SHAPE (mandatory — do not reuse the same slide deck on every platform):
+- Instagram carousel: content MUST start with "Caption:" (2–4 lines for the feed — hook, value, CTA, location if relevant). Then a blank line, then "Cards:" and numbered lines "1. …" through "6. …" (short on-image text per card). Do NOT prefix lines with "Slide 1:" or "Slide 2:". Also fill carouselImagePrompts with the SAME number of entries as Cards — each prompt describes a 4:5 photoreal scene for that card (dental clinic, local context, etc.), consistent series style, NO readable text in the image.
+- Instagram single-image / Reels: one flowing caption only — NO "Slide" labels, NO "Cards:" section.
+- X (Twitter): NEVER use "Slide", "Card", or carousel labels. Use a thread: each paragraph starts with "1/6", "2/6", … and each block must be ≤280 characters (including the counter). Shorter, punchier lines than Instagram. Put hashtags only in the hashtags JSON field, not repeated in every tweet.
+- LinkedIn / Facebook: use their native formats from the playbook above — not Instagram carousel slide scripts copied verbatim.`;
 
 const topicSocialPackSchema = {
   type: Type.OBJECT,
@@ -264,6 +289,12 @@ const topicSocialPackSchema = {
           hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
           imagePrompt: { type: Type.STRING },
           aspectRatio: { type: Type.STRING },
+          carouselImagePrompts: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description:
+              'Instagram carousel only: one image prompt per card (4:5), same visual series, scene matches card message, no text in image',
+          },
         },
         required: ['platform', 'viralFormat', 'whyThisFormat', 'content', 'hashtags', 'imagePrompt'],
       },
@@ -271,6 +302,63 @@ const topicSocialPackSchema = {
   },
   required: ['topicSummary', 'nicheAudience', 'posts'],
 };
+
+function stripTrailingHashtagBlock(text) {
+  return String(text || '')
+    .replace(/\n\n(?:#[\w\u00C0-\u024F]+(?:\s+#[\w\u00C0-\u024F]+)*)\s*$/u, '')
+    .trim();
+}
+
+/** Fix common model mistake: same "Slide N:" carousel pasted on IG and X. */
+function normalizeTopicSocialPostContent(platform, rawContent) {
+  let content = String(rawContent || '').trim();
+  if (!content) return content;
+
+  const pl = String(platform || '').toLowerCase();
+  const isX = pl.includes('twitter') || pl === 'x' || pl.startsWith('x ');
+  const isIg = pl.includes('instagram') || pl.includes('threads');
+
+  const slideBlocks = content.split(/\n(?=Slide\s+\d+\s*[:：])/i).filter((s) => s.trim());
+  const hasSlideLabels = slideBlocks.length > 1 || /^Slide\s+\d+\s*[:：]/i.test(content);
+
+  if (isX && hasSlideLabels) {
+    const bodies = slideBlocks.map((block) =>
+      stripTrailingHashtagBlock(block.replace(/^Slide\s+\d+\s*[:：]\s*/i, '').trim())
+    ).filter(Boolean);
+    const total = bodies.length;
+    content = bodies
+      .map((body, i) => {
+        const prefix = `${i + 1}/${total} `;
+        const max = 280;
+        let line = body.replace(/\s+/g, ' ').trim();
+        if (prefix.length + line.length > max) {
+          line = `${line.slice(0, max - prefix.length - 1).trim()}…`;
+        }
+        return `${i + 1}/${total}\n${line}`;
+      })
+      .join('\n\n');
+    return content;
+  }
+
+  if (isIg && hasSlideLabels) {
+    const bodies = slideBlocks.map((block) =>
+      stripTrailingHashtagBlock(block.replace(/^Slide\s+\d+\s*[:：]\s*/i, '').trim())
+    ).filter(Boolean);
+    const hook = bodies[0] || '';
+    const lines = [
+      'Caption:',
+      bodies.length > 1
+        ? `${hook}\n\nSwipe for more — save if useful.`
+        : hook,
+      '',
+      'Cards:',
+      ...bodies.map((text, i) => `${i + 1}. ${text}`),
+    ];
+    return lines.join('\n');
+  }
+
+  return content;
+}
 
 async function generateTopicSocialPack({
   topic,
@@ -312,18 +400,22 @@ ${taskInstruction}
 
 ${PLATFORM_VIRAL_PLAYBOOK}
 
-Return JSON with topicSummary, nicheAudience, and posts[]. Each content field must be ready to paste — include slide labels, thread numbering, or section headers inside content when the format requires it. imagePrompt must describe visuals optimized for that platform (infographic, carousel slide 1, reel thumbnail, etc.). Do not invent fake statistics or regulated claims; use illustrative framing when data is not provided.`;
+Return JSON with topicSummary, nicheAudience, and posts[]. Each content field must be ready to paste and MUST follow CONTENT SHAPE rules for that post's platform. imagePrompt must describe visuals optimized for that platform (infographic, carousel cover, reel thumbnail, etc.). Do not invent fake statistics or regulated claims; use illustrative framing when data is not provided.`;
 
   const systemInstruction = `You are a multi-platform growth strategist who adapts viral organic formats to each niche.
 ${voice}
 CRITICAL: Every post must match the brand voice block and fit the topic niche (e.g. healthcare + AI → credible, educational, trust-first).`;
 
   const parsed = await generateJson(prompt, topicSocialPackSchema, systemInstruction);
-  const posts = Array.isArray(parsed?.posts) ? parsed.posts : [];
+  const rawPosts = Array.isArray(parsed?.posts) ? parsed.posts : [];
+  const posts = rawPosts.slice(0, multiChannel ? platformList.length : count).map((post) => ({
+    ...post,
+    content: normalizeTopicSocialPostContent(post.platform, post.content),
+  }));
   return {
     topicSummary: parsed?.topicSummary || String(topic || '').slice(0, 120),
     nicheAudience: parsed?.nicheAudience || audience || '',
-    posts: posts.slice(0, multiChannel ? platformList.length : count),
+    posts,
   };
 }
 
@@ -649,7 +741,7 @@ function formatVertexError(err) {
       return `${msg} Set VERTEX_TEXT_MODEL=gemini-2.5-flash in .env.local and restart the backend.`;
     }
     if (/Publisher model.*was not found/i.test(msg)) {
-      return `${msg} In Cloud Console → Vertex AI → open Generative AI for project "${PROJECT || 'marketing-os-513012'}" and finish first-time setup. Then run: gcloud auth application-default login --project=${PROJECT || 'marketing-os-513012'}`;
+      return `${msg} For Agent Platform on project "${PROJECT || 'marketing-os-513012'}", set VERTEX_LOCATION=global and VERTEX_TEXT_MODEL=gemini-3-flash-preview in .env.local, restart the backend. See https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations`;
     }
     return msg;
   } catch {

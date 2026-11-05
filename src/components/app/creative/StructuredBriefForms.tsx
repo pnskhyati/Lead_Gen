@@ -3,6 +3,9 @@ import { Sparkles, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { useTheme } from '../../../context/ThemeContext';
 import { CategoryType } from './CategoryNav';
 
+/** How campaign visuals are generated for multi-channel social packs. */
+export type SocialVisualImageMode = 'per-platform' | 'shared';
+
 export interface StructuredFormsState {
   emailForm: {
     campaignType: string;
@@ -20,6 +23,8 @@ export interface StructuredFormsState {
     coreHook: string;
     keyTakeaways: string;
     visualDirection: string;
+    /** Same hero on LinkedIn, IG, X, etc. vs one image per platform (IG carousel = per card). */
+    visualImageMode: SocialVisualImageMode;
     hashtagStyle: string;
     primaryCtaUrl: string;
   };
@@ -448,6 +453,55 @@ export default function StructuredBriefForms({
                 <option value="Manifesto Excerpt">Manifesto Excerpt</option>
               </select>
             </div>
+          </div>
+
+          <div>
+            <label
+              className={`block text-[11px] uppercase tracking-wider font-mono mb-1.5 ${
+                isLight ? 'text-[#122420]' : 'text-[#E8E9D8]'
+              }`}
+            >
+              Campaign visual
+            </label>
+            <div className="inline-flex rounded-[2px] border border-inherit overflow-hidden w-full sm:w-auto">
+              {(
+                [
+                  { id: 'shared' as const, label: 'Same image all channels' },
+                  { id: 'per-platform' as const, label: 'Different per platform' },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() =>
+                    onUpdateState({
+                      ...formsState,
+                      socialForm: { ...socialForm, visualImageMode: opt.id },
+                    })
+                  }
+                  className={`flex-1 sm:flex-none px-3 py-2 text-[11px] font-mono transition-colors cursor-pointer ${
+                    (socialForm.visualImageMode ?? 'per-platform') === opt.id
+                      ? isLight
+                        ? 'bg-[#143630] text-white'
+                        : 'bg-[#E8E9D8] text-[#071C1A] font-semibold'
+                      : isLight
+                        ? 'bg-[#F8F9F5] text-[#3E6A5E] hover:text-[#122420]'
+                        : 'bg-[#061816] text-[#A9BFA5]/70 hover:text-[#E8E9D8]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p
+              className={`mt-1.5 text-[10px] font-mono leading-relaxed ${
+                isLight ? 'text-[#668877]' : 'text-[#A9BFA5]/60'
+              }`}
+            >
+              {(socialForm.visualImageMode ?? 'per-platform') === 'shared'
+                ? 'One Vertex render — reused on LinkedIn, Facebook, Instagram, and X.'
+                : 'Tailored image per platform; Instagram carousels get one frame per card.'}
+            </p>
           </div>
 
           <div>

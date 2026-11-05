@@ -31,6 +31,7 @@ interface CreativeLabViewProps {
   onNavigateSub: (sub: SubCategory) => void;
   onGenerateSuccess: (newAsset: GeneratedAsset) => void;
   liveGenerate?: CreativeLiveGenerateFn;
+  liveRenderImage?: (prompt: string) => Promise<string>;
   initialBrandContext?: BrandContext;
 }
 
@@ -40,6 +41,7 @@ export default function CreativeLabView({
   onNavigateSub,
   onGenerateSuccess,
   liveGenerate,
+  liveRenderImage,
   initialBrandContext,
 }: CreativeLabViewProps) {
   const { theme } = useTheme();
@@ -48,17 +50,18 @@ export default function CreativeLabView({
   const isAssetsView = activeSubCategory === 'generated-assets' || activeSubCategory === 'content-library';
 
   // 2. Generation Mode: Structured Brief (default) vs Quick Generate
-  const [createMode, setCreateMode] = useState<'structured' | 'quick'>('structured');
+  const [createMode, setCreateMode] = useState<'structured' | 'quick'>('quick');
 
   // 3. Global Brand Context
   const [brandContext, setBrandContext] = useState<BrandContext>(initialBrandContext || DEFAULT_BRAND_CONTEXT);
 
   useEffect(() => {
-    if (initialBrandContext) setBrandContext(initialBrandContext);
+    if (!initialBrandContext) return;
+    setBrandContext(initialBrandContext);
   }, [initialBrandContext]);
 
   // 1. Active Category (Email Copy, Social Post, Headline Set, Ad Script, Thought Leadership, Hero Brief)
-  const [selectedCategory, setSelectedCategory] = useState<CategoryType>('Email Copy');
+  const [selectedCategory, setSelectedCategory] = useState<CategoryType>('Social Post');
 
   // 10. Variations count: 1, 3, or 5 (defaults to 3 for rich multi-version studio experience)
   const [variationsCount, setVariationsCount] = useState<number>(3);
@@ -88,6 +91,7 @@ export default function CreativeLabView({
       coreHook: 'Most productivity software is built around urgency. We built Nexora around stillness.',
       keyTakeaways: '1. Red notification badges hijack executive dopamine.\n2. Hairline layouts recover 40% working memory.\n3. Subtract the noise. Multiply the depth.',
       visualDirection: 'Monochromatic UI specimen render on dark obsidian slate with hairline gold grid',
+      visualImageMode: 'per-platform',
       hashtagStyle: 'Zero Hashtags (Strict Editorial)',
       primaryCtaUrl: 'nexora.studio/atelier'
     },
@@ -177,6 +181,7 @@ export default function CreativeLabView({
           coreHook: 'We audited 50 agency CRMs. 84% of account managers felt their tools increased anxiety instead of productivity.',
           keyTakeaways: '1. Cluttered toolbars drain working memory within 12 minutes.\n2. Notifications trigger phantom urgency that impairs executive judgment.\n3. The future belongs to quiet software.',
           visualDirection: 'Side-by-side comparison graphic of bloated legacy UI vs. Nexora hairline architecture',
+          visualImageMode: 'per-platform',
           hashtagStyle: 'Curated 2-3 Focus Tags',
           primaryCtaUrl: 'nexora.studio/atelier'
         }
@@ -1253,12 +1258,18 @@ Audio: Solo cello harmonics and tactile room tone
     }
   };
 
-  const handleUpdateVariationImage = (idx: number, newImageUrl: string) => {
+  const handleUpdateVariationImage = (idx: number, newImageUrl: string, carouselIndex?: number) => {
     const updated = [...variations];
-    if (updated[idx]) {
-      updated[idx] = { ...updated[idx], imageUrl: newImageUrl };
-      setVariations(updated);
+    const current = updated[idx];
+    if (!current) return;
+    if (carouselIndex != null && current.imageUrls?.length) {
+      const urls = [...current.imageUrls];
+      urls[carouselIndex] = newImageUrl;
+      updated[idx] = { ...current, imageUrls: urls, imageUrl: urls[0] };
+    } else {
+      updated[idx] = { ...current, imageUrl: newImageUrl };
     }
+    setVariations(updated);
   };
 
   const handleCopyAsset = (text: string, id: string) => {
@@ -1395,11 +1406,21 @@ Audio: Solo cello harmonics and tactile room tone
             <div className="lg:col-span-6 space-y-4">
               {createMode === 'quick' ? (
                 <QuickGenerateForm
-                  onQuickGenerate={(prompt, count, detectedCat) => {
-                    setSelectedCategory(detectedCat);
-                    handleGenerate(prompt, count, detectedCat);
+                  category={selectedCategory}
+                  onQuickGenerate={(prompt, count, cat) => {
+                    handleGenerate(prompt, count, cat);
                   }}
                   isGenerating={isGenerating}
+                  showVisualImageMode={['Social Post', 'Hero Brief', 'Product Render', 'Brand Specimen'].includes(
+                    selectedCategory
+                  )}
+                  visualImageMode={formsState.socialForm.visualImageMode ?? 'per-platform'}
+                  onVisualImageModeChange={(mode) =>
+                    setFormsState((prev) => ({
+                      ...prev,
+                      socialForm: { ...prev.socialForm, visualImageMode: mode },
+                    }))
+                  }
                 />
               ) : (
                 <StructuredBriefForms
@@ -1428,6 +1449,8 @@ Audio: Solo cello harmonics and tactile room tone
                 onRegenerate={() => handleGenerate()}
                 onRefine={handleRefine}
                 isGenerating={isGenerating}
+                renderImageWithAi={liveRenderImage}
+                usePlaceholderImages={!liveRenderImage}
               />
             </div>
           </div>

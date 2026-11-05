@@ -20,12 +20,22 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../../context/ThemeContext';
 import { CategoryType } from './CategoryNav';
+import { isInstagramPlatform, parseInstagramCards } from './instagramCarousel';
 
 export interface GeneratedVariation {
   id: string;
   versionLabel: string; // e.g. "VERSION 01 — QUIET"
+  /** Full post text for schedule / copy (no strategy headers). */
   content: string;
+  /** Topic, format rationale, platform header — shown above post, not copied by default. */
+  metaBrief?: string;
+  platform?: string;
   imagePrompt?: string;
+  /** Instagram carousel frames (4:5), one URL per card. */
+  imageUrls?: string[];
+  carouselImagePrompts?: string[];
+  /** One hero reused on every channel tab when user picks "same image all channels". */
+  sharedCampaignImage?: boolean;
   imageUrl?: string;
   renderedImageMock?: string;
 }
@@ -36,10 +46,14 @@ interface OutputWorkspaceProps {
   activeVariationIndex: number;
   onSelectVariation: (index: number) => void;
   onUpdateVariationContent: (index: number, newContent: string) => void;
-  onUpdateVariationImage?: (index: number, newImageUrl: string) => void;
+  onUpdateVariationImage?: (index: number, newImageUrl: string, carouselIndex?: number) => void;
   onRegenerate: () => void;
   onRefine: (instruction: string) => void;
   isGenerating: boolean;
+  /** When set, Regenerate uses Vertex/Gemini image generation from imagePrompt. */
+  renderImageWithAi?: (prompt: string) => Promise<string>;
+  /** Demo mode: cycle stock renders when true and no renderImageWithAi. */
+  usePlaceholderImages?: boolean;
 }
 
 const STOCK_RENDER_ASSETS = [
@@ -59,7 +73,9 @@ export default function OutputWorkspace({
   onUpdateVariationImage,
   onRegenerate,
   onRefine,
-  isGenerating
+  isGenerating,
+  renderImageWithAi,
+  usePlaceholderImages = true,
 }: OutputWorkspaceProps) {
   const { theme } = useTheme();
   const isLight = theme === 'light';
@@ -72,6 +88,7 @@ export default function OutputWorkspace({
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [generationStep, setGenerationStep] = useState<string>('');
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [activeCarouselIndex, setActiveCarouselIndex] = useState(0);
   
   // View mode for image generation categories
   const isImageCategory = ['Hero Brief', 'Product Render', 'Brand Specimen'].includes(category);
@@ -80,8 +97,32 @@ export default function OutputWorkspace({
 
   const currentVariation = variations[activeVariationIndex] || null;
 
+  React.useEffect(() => {
+    setActiveCarouselIndex(0);
+  }, [activeVariationIndex, currentVariation?.id]);
+
+  const carouselFrames =
+    currentVariation?.imageUrls?.filter(Boolean) ||
+    (currentVariation?.imageUrl ? [currentVariation.imageUrl] : []);
+
+  const carouselIndex = Math.min(
+    activeCarouselIndex,
+    Math.max(0, carouselFrames.length - 1)
+  );
+
   // Active image url fallback or from current variation
-  const activeImageUrl = currentVariation?.imageUrl || (isImageCategory ? STOCK_RENDER_ASSETS[activeVariationIndex % STOCK_RENDER_ASSETS.length] : undefined);
+  const activeImageUrl =
+    carouselFrames[carouselIndex] ||
+    currentVariation?.imageUrl ||
+    (isImageCategory && usePlaceholderImages && !renderImageWithAi
+      ? STOCK_RENDER_ASSETS[activeVariationIndex % STOCK_RENDER_ASSETS.length]
+      : undefined);
+
+  const igCardCount = parseInstagramCards(currentVariation?.content || '').length;
+  const isIgCarouselLayout =
+    isInstagramPlatform(currentVariation?.platform || currentVariation?.versionLabel || '') &&
+    igCardCount >= 2;
+  const isIgCarousel = carouselFrames.length > 1 || isIgCarouselLayout;
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -103,7 +144,7 @@ export default function OutputWorkspace({
 
   const handleExport = () => {
     if (!currentVariation) return;
-    const blob = new Blob([currentVariation.content], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([currentVariation.content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -122,32 +163,53 @@ export default function OutputWorkspace({
     document.body.removeChild(a);
   };
 
-  const handleTriggerImageGeneration = () => {
+  const handleTriggerImageGeneration = (slideIndex?: number) => {
+    const idx = slideIndex ?? carouselIndex;
+    const carouselPrompts = currentVariation?.carouselImagePrompts;
+    const raw =
+      (carouselPrompts?.length ? carouselPrompts[idx] : currentVariation?.imagePrompt)?.trim() ||
+      '';
+    const fromMeta = currentVariation?.metaBrief?.match(
+      /Visual \/ asset direction:\s*([\s\S]+)/i
+    )?.[1]?.trim();
+    const prompt = raw || fromMeta;
+    if (!prompt) return;
+
     setIsGeneratingImage(true);
-    setGenerationStep('Allocating Octane raytracing cluster...');
+    setGenerationStep(
+      isIgCarousel
+        ? `Rendering Instagram frame ${idx + 1} of ${carouselFrames.length}…`
+        : 'Sending brief to Vertex image model...'
+    );
 
-    setTimeout(() => {
-      setGenerationStep('Sampling 4500K directional radiance fields...');
-    }, 450);
+    if (renderImageWithAi) {
+      renderImageWithAi(prompt)
+        .then((url) => {
+          if (onUpdateVariationImage) {
+            onUpdateVariationImage(
+              activeVariationIndex,
+              url,
+              isIgCarousel ? idx : undefined
+            );
+          }
+        })
+        .catch(() => {
+          setGenerationStep('Image generation failed — check backend / Vertex config.');
+        })
+        .finally(() => {
+          setIsGeneratingImage(false);
+          setGenerationStep('');
+        });
+      return;
+    }
 
-    setTimeout(() => {
-      setGenerationStep('Synthesizing hairline materials & micro-knurling...');
-    }, 900);
-
-    setTimeout(() => {
-      setGenerationStep('Finalizing 3840×2160 UHD rendering passes...');
-    }, 1350);
-
+    setTimeout(() => setGenerationStep('Sampling 4500K directional radiance fields...'), 450);
+    setTimeout(() => setGenerationStep('Synthesizing materials...'), 900);
     setTimeout(() => {
       setIsGeneratingImage(false);
       setGenerationStep('');
-      // Assign appropriate image from high-fidelity rendered library
       const nextImg = STOCK_RENDER_ASSETS[(activeVariationIndex + 1) % STOCK_RENDER_ASSETS.length];
-      if (onUpdateVariationImage) {
-        onUpdateVariationImage(activeVariationIndex, nextImg);
-      } else if (currentVariation) {
-        currentVariation.imageUrl = nextImg;
-      }
+      if (onUpdateVariationImage) onUpdateVariationImage(activeVariationIndex, nextImg);
     }, 1800);
   };
 
@@ -270,7 +332,7 @@ export default function OutputWorkspace({
                 ? 'border-[#D0DDD0] bg-[#F8F9F5] text-[#244B40] hover:bg-[#EDF3EA]'
                 : 'border-[rgba(169,191,165,0.25)] bg-[#061816] text-[#A9BFA5] hover:text-white'
             }`}
-            title="Copy content"
+            title="Copy post for schedule"
           >
             {copied ? (
               <>
@@ -280,7 +342,7 @@ export default function OutputWorkspace({
             ) : (
               <>
                 <Copy className="w-3.5 h-3.5" />
-                <span>Copy</span>
+                <span>Copy post</span>
               </>
             )}
           </button>
@@ -307,7 +369,7 @@ export default function OutputWorkspace({
                 ? 'border-[#D0DDD0] bg-[#F8F9F5] text-[#244B40] hover:bg-[#EDF3EA]'
                 : 'border-[rgba(169,191,165,0.25)] bg-[#061816] text-[#A9BFA5] hover:text-white'
             }`}
-            title="Export markdown file"
+            title="Export post text file"
           >
             <Download className="w-3.5 h-3.5" />
           </button>
@@ -318,7 +380,7 @@ export default function OutputWorkspace({
       {/* ACTUAL GENERATED IMAGE RENDERING WORKSPACE                    */}
       {/* Shown prominently when in Images category or when image exists */}
       {/* ------------------------------------------------------------- */}
-      {(isImageCategory || activeImageUrl) && (
+      {(isImageCategory || activeImageUrl || isIgCarousel) && (
         <div
           className={`border rounded-[2px] p-3.5 transition-colors space-y-3 ${
             isLight
@@ -334,7 +396,11 @@ export default function OutputWorkspace({
                   isLight ? 'text-[#143630]' : 'text-[#E8E9D8]'
                 }`}
               >
-                ✨ Generated Visual Specimen
+                {currentVariation?.sharedCampaignImage
+                  ? '✨ Shared campaign visual (all channels)'
+                  : isIgCarouselLayout
+                    ? `✨ Instagram carousel · ${Math.max(carouselFrames.length, igCardCount)} frames (4:5)`
+                    : '✨ Generated Visual Specimen'}
               </span>
             </div>
 
@@ -373,7 +439,7 @@ export default function OutputWorkspace({
 
               <button
                 type="button"
-                onClick={handleTriggerImageGeneration}
+                onClick={() => handleTriggerImageGeneration()}
                 disabled={isGeneratingImage}
                 className={`px-2.5 py-0.5 rounded-[2px] flex items-center space-x-1 transition-colors cursor-pointer ${
                   isLight
@@ -383,10 +449,44 @@ export default function OutputWorkspace({
                 title="Regenerate Image"
               >
                 <RefreshCw className={`w-3 h-3 ${isGeneratingImage ? 'animate-spin' : ''}`} />
-                <span>{isGeneratingImage ? 'Rendering...' : 'Regenerate'}</span>
+                <span>
+                  {isGeneratingImage
+                    ? 'Rendering...'
+                    : isIgCarousel
+                      ? `Regenerate frame ${carouselIndex + 1}`
+                      : 'Regenerate'}
+                </span>
               </button>
             </div>
           </div>
+
+          {isIgCarousel ? (
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {carouselFrames.map((url, i) => (
+                <button
+                  key={`${url.slice(0, 32)}-${i}`}
+                  type="button"
+                  onClick={() => setActiveCarouselIndex(i)}
+                  className={`shrink-0 rounded-[2px] border overflow-hidden transition-all ${
+                    i === carouselIndex
+                      ? isLight
+                        ? 'border-[#143630] ring-2 ring-[#143630]/30'
+                        : 'border-[#A9BFA5] ring-2 ring-[#A9BFA5]/40'
+                      : isLight
+                        ? 'border-[#D0DDD0] opacity-80 hover:opacity-100'
+                        : 'border-[rgba(169,191,165,0.25)] opacity-80 hover:opacity-100'
+                  }`}
+                >
+                  <img
+                    src={url}
+                    alt={`Carousel frame ${i + 1}`}
+                    referrerPolicy="no-referrer"
+                    className="w-16 h-20 object-cover"
+                  />
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           {/* Actual Rendered Image Display Container */}
           <div className="relative group rounded-[2px] overflow-hidden border border-inherit bg-black shadow-md">
@@ -396,7 +496,9 @@ export default function OutputWorkspace({
                   src={activeImageUrl}
                   alt={currentVariation.versionLabel}
                   referrerPolicy="no-referrer"
-                  className="w-full aspect-video object-cover transition-transform duration-500 group-hover:scale-[1.01] cursor-pointer"
+                  className={`w-full object-cover transition-transform duration-500 group-hover:scale-[1.01] cursor-pointer ${
+                    isIgCarousel ? 'aspect-[4/5] max-h-[520px]' : 'aspect-video'
+                  }`}
                   onClick={() => setLightboxOpen(true)}
                 />
 
@@ -415,14 +517,18 @@ export default function OutputWorkspace({
             ) : (
               <div className="aspect-video w-full flex flex-col items-center justify-center p-8 text-center bg-[#071C1A] text-[#E8E9D8]">
                 <ImageIcon className="w-8 h-8 text-[#A9BFA5] mb-2 opacity-60" />
-                <span className="text-xs font-mono mb-3">No visual rendered for this version yet</span>
+                <span className="text-xs font-mono mb-3">
+                  {isIgCarouselLayout
+                    ? 'Carousel frames not rendered yet — generates one-by-one (card-matched scenes)'
+                    : 'No visual rendered for this version yet'}
+                </span>
                 <button
                   type="button"
-                  onClick={handleTriggerImageGeneration}
+                  onClick={() => handleTriggerImageGeneration(0)}
                   disabled={isGeneratingImage}
                   className="px-4 py-2 rounded-[2px] bg-[#E8E9D8] text-[#071C1A] text-xs font-mono font-medium hover:bg-white cursor-pointer"
                 >
-                  ✨ Render Image Now
+                  {isIgCarouselLayout ? '✨ Render carousel (start frame 1)' : '✨ Render Image Now'}
                 </button>
               </div>
             )}
@@ -443,18 +549,49 @@ export default function OutputWorkspace({
         </div>
       )}
 
-      {/* Generated Content Body (Art Direction Brief or Copy Script) */}
+      {/* Generated Content Body */}
       <div className="space-y-2">
-        {isImageCategory && (
+        {currentVariation.metaBrief ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[10px] uppercase font-mono tracking-widest font-medium">
+              <span className={isLight ? 'text-[#668877]' : 'text-[#A9BFA5]/70'}>
+                Strategy & format notes
+              </span>
+              <span className={isLight ? 'text-[#668877]' : 'text-[#A9BFA5]/60'}>
+                {currentVariation.versionLabel}
+              </span>
+            </div>
+            <div
+              className={`p-3 rounded-[2px] border text-[11px] leading-relaxed font-mono whitespace-pre-wrap ${
+                isLight
+                  ? 'bg-[#F0F4EF] border-[#E2ECE0] text-[#3E6A5E]'
+                  : 'bg-[#051412] border-[rgba(169,191,165,0.15)] text-[#A9BFA5]/90'
+              }`}
+            >
+              {currentVariation.metaBrief}
+            </div>
+          </div>
+        ) : isImageCategory ? (
           <div className="flex items-center justify-between text-[10px] uppercase font-mono tracking-widest font-medium">
             <span className={isLight ? 'text-[#244B40]' : 'text-[#A9BFA5]'}>
-              Technical Art Direction Brief
+              {renderImageWithAi ? 'Post copy (ready to schedule)' : 'Technical Art Direction Brief'}
             </span>
             <span className={isLight ? 'text-[#668877]' : 'text-[#A9BFA5]/60'}>
               {currentVariation.versionLabel}
             </span>
           </div>
-        )}
+        ) : null}
+
+        <div className="flex items-center justify-between text-[10px] uppercase font-mono tracking-widest font-medium">
+          <span className={isLight ? 'text-[#244B40]' : 'text-[#A9BFA5]'}>
+            Post output (schedule this)
+          </span>
+          {!currentVariation.metaBrief && !isImageCategory ? (
+            <span className={isLight ? 'text-[#668877]' : 'text-[#A9BFA5]/60'}>
+              {currentVariation.versionLabel}
+            </span>
+          ) : null}
+        </div>
 
         <div className="relative">
           {isEditing ? (
@@ -609,7 +746,11 @@ export default function OutputWorkspace({
             className="text-center text-white/70 text-xs font-mono pt-2 border-t border-white/10"
             onClick={(e) => e.stopPropagation()}
           >
-            <span>Octane Path Traced · 4500K Radiance · 35mm Hasselblad X2D · Nexora Atelier OS</span>
+            <span>
+              {isIgCarousel
+                ? `Frame ${carouselIndex + 1} of ${carouselFrames.length} · Match text from Cards: ${carouselIndex + 1} in post output · Download each for Canva`
+                : 'AI-generated hero · Add headline in post copy · Regenerate if scene or brand looks wrong'}
+            </span>
           </div>
         </div>
       )}

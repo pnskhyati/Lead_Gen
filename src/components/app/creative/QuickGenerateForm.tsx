@@ -2,15 +2,25 @@ import React, { useState } from 'react';
 import { Sparkles, ArrowRight } from 'lucide-react';
 import { useTheme } from '../../../context/ThemeContext';
 import { CategoryType } from './CategoryNav';
+import type { SocialVisualImageMode } from './StructuredBriefForms';
 
 interface QuickGenerateFormProps {
-  onQuickGenerate: (prompt: string, variationsCount: number, detectedCategory: CategoryType) => void;
+  /** Active format from the Text / Images / Videos bar (e.g. Social Post, Hero Brief). */
+  category: CategoryType;
+  onQuickGenerate: (prompt: string, variationsCount: number, category: CategoryType) => void;
   isGenerating: boolean;
+  visualImageMode?: SocialVisualImageMode;
+  onVisualImageModeChange?: (mode: SocialVisualImageMode) => void;
+  showVisualImageMode?: boolean;
 }
 
 export default function QuickGenerateForm({
+  category,
   onQuickGenerate,
-  isGenerating
+  isGenerating,
+  visualImageMode = 'per-platform',
+  onVisualImageModeChange,
+  showVisualImageMode = false,
 }: QuickGenerateFormProps) {
   const { theme } = useTheme();
   const isLight = theme === 'light';
@@ -41,37 +51,15 @@ export default function QuickGenerateForm({
     }
   ];
 
+  const runGenerate = (text: string, cat: CategoryType = category) => {
+    const trimmed = text.trim();
+    if (!trimmed || isGenerating) return;
+    onQuickGenerate(trimmed, variationsCount, cat);
+  };
+
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!prompt.trim() || isGenerating) return;
-
-    const lower = prompt.toLowerCase();
-    let detected: CategoryType = 'Social Post';
-    if (lower.includes('email') || lower.includes('newsletter') || lower.includes('subject line')) {
-      detected = 'Email Copy';
-    } else if (lower.includes('headline') || lower.includes('h1') || lower.includes('tagline')) {
-      detected = 'Headline Set';
-    } else if (lower.includes('video') || lower.includes('script') || lower.includes('reel') || lower.includes(' ad ')) {
-      detected = 'Ad Script';
-    } else if (lower.includes('visual') || lower.includes('3d') || lower.includes('render') || lower.includes('hero brief')) {
-      detected = 'Hero Brief';
-    } else if (lower.includes('essay') || lower.includes('editorial') || lower.includes('journal') || lower.includes('article')) {
-      detected = 'Thought Leadership';
-    } else if (
-      lower.includes('post') ||
-      lower.includes('twitter') ||
-      lower.includes('linkedin') ||
-      lower.includes('instagram') ||
-      lower.includes('facebook') ||
-      lower.includes('social') ||
-      lower.includes('thread') ||
-      lower.includes(' all channel') ||
-      lower.includes('multi-channel')
-    ) {
-      detected = 'Social Post';
-    }
-
-    onQuickGenerate(prompt, variationsCount, detected);
+    runGenerate(prompt);
   };
 
   return (
@@ -90,7 +78,7 @@ export default function QuickGenerateForm({
               isLight ? 'text-[#122420]' : 'text-[#E8E9D8]'
             }`}
           >
-            Prompt Prompt / Brief
+            Prompt / brief
           </label>
           <span
             className={`text-[10px] font-mono ${
@@ -134,7 +122,11 @@ export default function QuickGenerateForm({
             <button
               key={item.label}
               type="button"
-              onClick={() => setPrompt(item.text)}
+              onClick={() => {
+                setPrompt(item.text);
+                runGenerate(item.text, item.cat);
+              }}
+              disabled={isGenerating}
               className={`text-[10px] px-2 py-0.5 rounded-[2px] border font-mono transition-colors cursor-pointer shrink-0 ${
                 isLight
                   ? 'border-[#E2ECE0] bg-[#F8F9F5] text-[#244B40] hover:border-[#143630]'
@@ -145,6 +137,43 @@ export default function QuickGenerateForm({
             </button>
           ))}
         </div>
+
+        {showVisualImageMode && onVisualImageModeChange ? (
+          <div className="space-y-1.5">
+            <span
+              className={`text-[10px] uppercase font-mono tracking-wider ${
+                isLight ? 'text-[#3E6A5E]' : 'text-[#A9BFA5]/80'
+              }`}
+            >
+              Campaign visual
+            </span>
+            <div className="inline-flex rounded-[2px] border border-inherit overflow-hidden w-full">
+              {(
+                [
+                  { id: 'shared' as const, label: 'Same image all channels' },
+                  { id: 'per-platform' as const, label: 'Different per platform' },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => onVisualImageModeChange(opt.id)}
+                  className={`flex-1 px-2 py-1.5 text-[10px] font-mono transition-colors cursor-pointer ${
+                    visualImageMode === opt.id
+                      ? isLight
+                        ? 'bg-[#143630] text-white'
+                        : 'bg-[#E8E9D8] text-[#071C1A] font-semibold'
+                      : isLight
+                        ? 'bg-[#F8F9F5] text-[#3E6A5E] hover:text-[#122420]'
+                        : 'bg-[#061816] text-[#A9BFA5]/70 hover:text-[#E8E9D8]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {/* Bottom bar with Variations and Generate button */}
         <div
@@ -206,6 +235,13 @@ export default function QuickGenerateForm({
             )}
           </button>
         </div>
+
+        {!prompt.trim() && !isGenerating ? (
+          <p className={`text-[10px] font-mono ${isLight ? 'text-[#668877]' : 'text-[#A9BFA5]/60'}`}>
+            Type a prompt above, or click a <strong className="font-medium">Try</strong> chip to generate using{' '}
+            <span className="font-medium">{category}</span>.
+          </p>
+        ) : null}
       </form>
     </div>
   );
