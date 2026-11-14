@@ -70,6 +70,11 @@ const emptyProfile: CompanyProfile = {
   avoid: [],
   audience: '',
   productsFocus: '',
+  usp: '',
+  idealCustomer: '',
+  painPoints: '',
+  personas: '',
+  reviews: '',
   extraGuidelines: '',
   websiteUrl: '',
   businessPhone: '',
@@ -847,6 +852,18 @@ export default function AdminView({ isAdmin = false }: AdminViewProps) {
               Products / focus
               <input value={profile.productsFocus} disabled={!isAdmin} onChange={(e) => setProfile((p) => ({ ...p, productsFocus: e.target.value }))} className={inputClass} />
             </label>
+            {([
+              ['usp', 'What makes you different', 'Why choose you over others, in your own words'],
+              ['idealCustomer', 'Ideal customer', 'Who you serve best: industry, size, role'],
+              ['painPoints', 'Their main problems', 'What they struggle with before they find you'],
+              ['personas', 'Customer types', 'For example: a founder who wants X; an operations head who needs Y'],
+              ['reviews', 'Real customer feedback', 'Only real quotes. The agents may quote these and will never invent any'],
+            ] as const).map(([key, label, hint]) => (
+              <label key={key} className={`block text-xs font-semibold ${muted}`}>
+                {label}
+                <textarea value={(profile as Record<string, unknown>)[key] as string || ''} disabled={!isAdmin} onChange={(e) => setProfile((p) => ({ ...p, [key]: e.target.value }))} rows={2} className={`${inputClass} resize-y`} placeholder={hint} />
+              </label>
+            ))}
             <label className={`block text-xs font-semibold ${muted}`}>
               Preferred vocabulary
               <input value={vocabStr} disabled={!isAdmin} onChange={(e) => setVocabStr(e.target.value)} className={inputClass} placeholder="comma-separated" />

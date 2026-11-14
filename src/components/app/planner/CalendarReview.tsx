@@ -51,6 +51,7 @@ export default function CalendarReview({ campaignId, isAdmin, onSelectCampaign, 
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [cursor, setCursor] = useState<{ y: number; m: number } | null>(null);
   const [problems, setProblems] = useState<{ message: string; list: ApprovalProblem[] } | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
   const [approving, setApproving] = useState(false);
   const [dayBusy, setDayBusy] = useState(false);
   const [fillingImages, setFillingImages] = useState<string | null>(null);
@@ -217,24 +218,40 @@ export default function CalendarReview({ campaignId, isAdmin, onSelectCampaign, 
       <div className={`${s.card} p-4 sm:p-5 space-y-4`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={campaign.id}
-                onChange={(e) => onSelectCampaign(e.target.value)}
-                className={`text-base font-bold bg-transparent border-0 p-0 pr-6 focus:outline-none max-w-full ${s.title}`}
-                aria-label="Choose campaign"
-              >
-                {campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.theme || c.prompt.slice(0, 50)}
-                  </option>
-                ))}
-              </select>
-              {campaign.status === 'generating' && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-500">Still building…</span>}
-            </div>
-            <p className={`text-xs mt-0.5 ${s.muted}`}>
-              {campaign.summary || campaign.prompt.slice(0, 140)} · {campaign.days} days from {campaign.startDate} · {tz.replace(/_/g, ' ')}
-            </p>
+            {campaigns.length > 1 && (
+              <div className="mb-2">
+                <button
+                  type="button"
+                  onClick={() => setShowHistory((v) => !v)}
+                  className={`text-xs font-semibold hover:underline ${s.muted}`}
+                  aria-expanded={showHistory}
+                >
+                  Older plans ({campaigns.length}) {showHistory ? '▲' : '▼'}
+                </button>
+                {showHistory && (
+                  <ul className={`mt-1.5 max-h-56 overflow-y-auto rounded-lg border divide-y ${s.border} ${s.soft}`}>
+                    {campaigns.map((c) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectCampaign(c.id);
+                            setShowHistory(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between gap-3 hover:opacity-80 ${c.id === campaign.id ? 'font-bold' : ''}`}
+                        >
+                          <span className={`truncate ${s.title}`}>{c.theme || c.prompt.slice(0, 60)}</span>
+                          <span className={`shrink-0 ${s.muted}`}>{c.startDate} · {c.days} days</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            {campaign.status === 'generating' && (
+              <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-500">Still building…</span>
+            )}
             {!!campaign.skipped?.length && (
               <p className="text-xs mt-1 text-amber-500">
                 {campaign.skipped.map((k) => `${PLATFORM_LABEL[k.platform]} has no post: ${k.reason}`).join(' ')}

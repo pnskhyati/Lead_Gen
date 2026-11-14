@@ -35,6 +35,11 @@ const DEFAULT_PROFILE = {
   avoid: [],
   audience: '',
   productsFocus: '',
+  usp: '',
+  idealCustomer: '',
+  painPoints: '',
+  personas: '',
+  reviews: '',
   extraGuidelines: '',
   websiteUrl: '',
   businessPhone: '',
@@ -214,7 +219,7 @@ function sanitizeProfilePatch(body) {
   const patch = {};
   const strings = {
     companyName: 120, industry: 120, tagline: 200, botName: 40, voiceTone: 1200, writingStyle: 1200,
-    audience: 600, productsFocus: 2000, extraGuidelines: 3000, websiteUrl: 300, businessPhone: 40,
+    audience: 600, productsFocus: 2000, usp: 600, idealCustomer: 800, painPoints: 1000, personas: 1500, reviews: 2000, extraGuidelines: 3000, websiteUrl: 300, businessPhone: 40,
     businessAddress: 400, businessHours: 400, location: 120, googleBusinessProfileUrl: 400,
   };
   for (const [key, max] of Object.entries(strings)) {
@@ -647,12 +652,25 @@ COMPANY BRAND VOICE (follow strictly — this overrides generic tone labels):
 - Style: ${p.writingStyle}
 - Audience: ${p.audience || 'customers and prospects'}
 - Product focus: ${p.productsFocus || 'n/a'}
-- Prefer words: ${(p.vocabulary || []).join(', ') || 'natural brand language'}
+${brainLines(p)}- Prefer words: ${(p.vocabulary || []).join(', ') || 'natural brand language'}
 - Never use: ${(p.avoid || []).join(', ') || 'generic AI filler'}
 ${p.extraGuidelines ? `- Extra: ${p.extraGuidelines}` : ''}
 ${overrideTone ? `- Session note (secondary): ${overrideTone}` : ''}
 Every post, caption, and reply must sound like ${name} wrote it.
 `.trim();
+}
+
+/** What makes the business different and who it serves. Only what the owner wrote; empty fields are left out. */
+function brainLines(p) {
+  const rows = [
+    ['What makes us different', p.usp],
+    ['Ideal customer', p.idealCustomer],
+    ['Their main problems', p.painPoints],
+    ['Customer types', p.personas],
+    ['Real customer feedback (quote only these, never invent any)', p.reviews],
+  ];
+  return rows.filter(([, v]) => v).map(([k, v]) => `- ${k}: ${v}
+`).join('');
 }
 
 function getVoiceForGeneration({ voiceMode, tone, customTone } = {}, ws) {

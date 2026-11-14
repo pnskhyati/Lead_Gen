@@ -40,6 +40,11 @@ async function handleDirectMessage({
 
   const lead = await leads.upsertLead(base);
   await leads.addMessage({ leadId: lead.id, role: 'customer', text, channelMessageId: messageId });
+  try {
+    require('../growth/appointments').noteBookingIntent({ lead, text });
+  } catch {
+    /* booking is optional */
+  }
 
   if (!autoReplyEnabled) return { lead, skipped: true, reason: 'auto_reply_disabled' };
   if (lead.autoReplyPaused || lead.status === 'handed_off') return { lead, skipped: true, reason: 'handoff' };

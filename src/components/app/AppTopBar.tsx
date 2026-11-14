@@ -191,6 +191,7 @@ export default function AppTopBar({
       case 'intelligence': return 'Market Intelligence';
       case 'seo': return 'SEO / GEO';
       case 'autoreply': return 'Auto-reply';
+      case 'actions': return 'Action Center';
       default: return cat;
     }
   };

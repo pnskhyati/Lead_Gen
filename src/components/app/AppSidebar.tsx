@@ -23,6 +23,7 @@ import {
   Link2,
   Shield,
   Globe2,
+  Zap,
   MessageCircle
 } from 'lucide-react';
 import { NavCategory, SubCategory } from '../../types';
@@ -132,6 +133,7 @@ const TECAVY_NAV_GROUPS: { label: string; entries: TecavyNavEntry[] }[] = [
   {
     label: 'AI & MARKETING',
     entries: [
+      { key: 'actions', label: 'Action Center', icon: Zap, category: 'actions', sub: 'overview' },
       { key: 'agent', label: 'Engagement Agent', icon: Sparkles, category: 'agent', sub: 'lead-growth' },
       { key: 'schedule', label: 'Content Planner', icon: Calendar, category: 'content', sub: 'schedule' },
       { key: 'seo', label: 'SEO / GEO', icon: Globe2, category: 'seo', sub: 'overview' },
@@ -152,6 +154,7 @@ export function resolveTecavyNavKey(category: NavCategory, sub: SubCategory): st
   if (category === 'intelligence') return 'intelligence';
   if (category === 'seo') return 'seo';
   if (category === 'autoreply') return 'autoreply';
+  if (category === 'actions') return 'actions';
   if (category === 'content') {
     return 'schedule';
   }

@@ -10,6 +10,7 @@ import { getFacebookStatus } from '../../legacy/services/facebookService';
 import { listAutoReplyItems } from '../../legacy/services/autoReplyService';
 import { getPostAnalytics, PLATFORM_LABEL } from '../../legacy/services/plannerService';
 import type { ExtraEvent } from './overviewStats';
+import { SignalsStrip } from './ActionCenterView';
 
 interface LiveOverviewProps {
   workspaceName?: string;
@@ -241,6 +242,8 @@ export default function LiveOverview({
   );
 
   return (
+    <div className="space-y-5">
+    <SignalsStrip onNavigate={onNavigate} />
     <OverviewView
       metrics={metrics}
       leads={uiLeads}
@@ -255,5 +258,6 @@ export default function LiveOverview({
       rawLeads={legacyLeads}
       extraEvents={extraEvents}
     />
+    </div>
   );
 }

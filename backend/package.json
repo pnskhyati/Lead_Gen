@@ -11,8 +11,8 @@
     "test:tenancy": "node tenancy.test.js",
     "test": "npm run test:knowledge && npm run test:tenancy && npm run test:social && npm run test:seo-geo",
     "eval:rag": "node knowledge/eval.js",
-    "test:social": "node social/foundation.test.js && node social/generator.test.js && node social/analytics.test.js && node social/scheduler.test.js && node social/routes.test.js && node social/import.test.js && node social/brandStyle.test.js && node social/postFormats.test.js && node email/email.test.js && node email/oauth.test.js && node autoReply/engine.test.js && node autoReply/conversation.test.js && node linkedinCm.test.js",
-    "test:autoreply": "node autoReply/engine.test.js && node autoReply/conversation.test.js && node linkedinCm.test.js"
+    "test:social": "node social/foundation.test.js && node social/generator.test.js && node social/analytics.test.js && node social/scheduler.test.js && node social/routes.test.js && node social/import.test.js && node social/brandStyle.test.js && node social/postFormats.test.js && node email/email.test.js && node email/oauth.test.js && node autoReply/engine.test.js && node autoReply/conversation.test.js && node linkedinCm.test.js && node growth/growth.test.js",
+    "test:autoreply": "node autoReply/engine.test.js && node autoReply/conversation.test.js && node linkedinCm.test.js && node growth/growth.test.js"
   },
   "dependencies": {
     "@google/genai": "^2.19.0",

@@ -10,6 +10,7 @@ import ChannelsView from './app/ChannelsView';
 import LiveOverview from './app/LiveOverview';
 import SeoGeoPanel from './app/SeoGeoPanel';
 import AutoReplyView from './app/AutoReplyView';
+import ActionCenterView from './app/ActionCenterView';
 import LiveInbox from './app/LiveInbox';
 import LiveContent from './app/LiveContent';
 import ContentPlannerView from './app/planner/ContentPlannerView';
@@ -66,6 +67,7 @@ function defaultSub(category: NavCategory): SubCategory {
       return 'competitor';
     case 'seo':
     case 'autoreply':
+    case 'actions':
       return 'overview';
     default:
       return 'default';
@@ -88,6 +90,7 @@ function tecavyPageTitle(category: NavCategory, sub: SubCategory): string {
     intelligence: 'Market Intelligence',
     seo: 'SEO / GEO',
     autoreply: 'Auto-reply',
+    actions: 'Action Center',
     connections: 'Connections',
     settings: 'Settings',
   };
@@ -304,6 +307,19 @@ export default function LiveNexoraShell({
 
     if (activeCategory === 'intelligence') {
       return <MarketIntelligenceView onNavigate={handleSelectNav} />;
+    }
+
+    if (activeCategory === 'actions') {
+      return (
+        <div className="flex flex-col gap-4">
+          <TecavyPageHead
+            label="Marketing / Action Center"
+            title="Action Center"
+            description="What needs attention, what we suggest doing about it, and how your leads are performing. Nothing happens without your approval."
+          />
+          <ActionCenterView sub={activeSubCategory} onNavigate={handleSelectNav} />
+        </div>
+      );
     }
 
     if (activeCategory === 'autoreply') {

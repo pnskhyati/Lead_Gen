@@ -25,6 +25,11 @@ export interface CompanyProfile {
   avoid: string[];
   audience: string;
   productsFocus: string;
+  usp?: string;
+  idealCustomer?: string;
+  painPoints?: string;
+  personas?: string;
+  reviews?: string;
   extraGuidelines: string;
   websiteUrl?: string;
   businessPhone?: string;

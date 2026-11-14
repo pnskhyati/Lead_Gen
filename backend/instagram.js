@@ -420,6 +420,12 @@ async function handleIncomingDm(vertex, leadAgent, { senderId, text, messageId, 
     channelMessageId: messageId,
   });
 
+  try {
+    require('./growth/appointments').noteBookingIntent({ lead, text });
+  } catch {
+    /* booking is optional */
+  }
+
   if (lead.autoReplyPaused || lead.status === 'handed_off') {
     return { lead, skipped: true, reason: 'handoff' };
   }

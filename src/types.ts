@@ -36,6 +36,7 @@ export type NavCategory =
   | 'intelligence'
   | 'seo'
   | 'autoreply'
+  | 'actions'
   // Backwards-compatible aliases
   | 'insights'
   | 'creative-lab'
@@ -88,6 +89,10 @@ export type SubCategory =
   | 'lead-analytics'
   | 'channel-performance'
   | 'post-performance'
+  | 'performance'
+  | 'competitors'
+  | 'appointments'
+  | 'autopilot'
   // 7. Settings subcategories
   | 'business'
   | 'ai-knowledge'

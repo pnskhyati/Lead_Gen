@@ -668,6 +668,19 @@ const autoReplyEngine = require('./autoReply/engine').createEngine({ vertex, lea
 require('./autoReply/routes').mountRoutes(app, { engine: autoReplyEngine, requireAuth: requireApp, requireAdmin: companyKnowledge.requireAdmin });
 autoReplyEngine.start();
 
+// --- Growth: action center, appointments, performance, competitor watch, autopilot (proposes only, never acts alone) ---
+const growth = require('./growth/routes').createGrowth({
+    vertex,
+    leadsCrm,
+    getReplyItems: (ws) => require('./autoReply/store').read(ws).items || [],
+    citationMonitor: require('./seoGeo/citationMonitor'),
+    pageWriter: require('./seoGeo/pageWriter'),
+    suggestions: require('./seoGeo/suggestions'),
+    companyKnowledge,
+});
+growth.mountRoutes(app, { requireAuth: requireApp, requireAdmin: companyKnowledge.requireAdmin });
+growth.start();
+
 // --- Google Ads lead forms, ads landing (UTM), Sheets export ---
 const googleAds = require('./googleAds');
 const googleSheets = require('./googleSheets');
