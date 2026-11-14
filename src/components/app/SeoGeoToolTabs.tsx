@@ -14,7 +14,6 @@ import {
   getSeoGeoKeywords,
   listSeoGeoCrawlJobs,
   listSeoGeoFixes,
-  proposeSeoGeoFix,
   rollbackSeoGeoFix,
   runSeoGeoCitationTests,
   startSeoGeoCrawl,
@@ -23,9 +22,16 @@ import {
   type SeoGeoFix,
   type SeoGeoGeoPrompt,
   type SeoGeoKeyword,
+  type SeoGeoSuggestion,
+  type SeoGeoRankSnapshot,
+  type SeoGeoPage,
+  type SeoGeoCitationRun,
+  suggestSeoGeo,
 } from '../../legacy/services/seoGeoService';
 
-type TabId = 'crawl' | 'rank' | 'citations' | 'fixes';
+import { PageDraftCard, SavedPages, WritePageButton } from './SeoGeoPages';
+
+type TabId ='rank' | 'citations' | 'advanced';
 
 interface Props {
   tab: TabId;
@@ -99,12 +105,9 @@ function CrawlTab({ isLight, onError }: Omit<Props, 'tab'>) {
 
   return (
     <div className="space-y-3">
-      <p className={`text-xs ${muted}`}>
-        Full-site crawl respects robots.txt, SSRF guards, and URL budgets. Re-audit uses the latest completed crawl.
-      </p>
       <div className="flex flex-wrap items-end gap-2">
         <label className={`text-[11px] ${muted}`}>
-          Max URLs
+          Most pages to check
           <input
             type="number"
             min={10}
@@ -115,7 +118,7 @@ function CrawlTab({ isLight, onError }: Omit<Props, 'tab'>) {
           />
         </label>
         <button type="button" disabled={busy} onClick={() => void onStart()} className={btnPrimary(isLight)}>
-          {busy ? 'Starting…' : 'Start full crawl'}
+          {busy ? 'Starting…' : 'Scan whole site'}
         </button>
         <button type="button" onClick={() => void refresh()} className={btnSecondary(isLight)}>
           Refresh
@@ -124,20 +127,20 @@ function CrawlTab({ isLight, onError }: Omit<Props, 'tab'>) {
       {active && (
         <div className={`text-xs rounded-lg border px-3 py-2 space-y-1 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[rgba(169,191,165,0.15)] bg-[#061816]'}`}>
           <p>
-            Job <span className="font-mono">{active.id.slice(0, 16)}…</span> · {active.status}
+            Scan {active.status === 'completed' ? 'finished' : active.status === 'running' || active.status === 'queued' ? 'in progress' : active.status}
           </p>
           <p>
-            {active.urlsCrawled ?? 0} / {active.urlsDiscovered ?? '?'} URLs · budget {active.maxUrls}
+            {active.urlsCrawled ?? 0} of {active.urlsDiscovered ?? '?'} pages checked
           </p>
           {active.error && <p className="text-rose-600">{active.error}</p>}
           {active.completedAt && <p className={muted}>Completed {new Date(active.completedAt).toLocaleString()}</p>}
         </div>
       )}
-      {jobs.length > 0 && (
+      {jobs.length > 1 && (
         <ul className={`text-[11px] space-y-1 ${muted}`}>
-          {jobs.slice(0, 8).map((j) => (
+          {jobs.slice(1, 4).map((j) => (
             <li key={j.id}>
-              {j.status} · {j.id.slice(0, 12)}… · {new Date(j.startedAt).toLocaleString()}
+              Earlier scan · {new Date(j.startedAt).toLocaleString()} · {j.status}
             </li>
           ))}
         </ul>
@@ -146,11 +149,115 @@ function CrawlTab({ isLight, onError }: Omit<Props, 'tab'>) {
   );
 }
 
+const INTENT_LABEL: Record<SeoGeoSuggestion['intent'], string> = {
+  buy: 'Ready to buy',
+  compare: 'Comparing options',
+  learn: 'Researching',
+};
+
+/** AI-suggested phrases or questions, each added with one click. */
+function Suggestions({
+  kind,
+  isLight,
+  onError,
+  onAdd,
+}: {
+  kind: 'keywords' | 'questions';
+  isLight: boolean;
+  onError: (msg: string | null) => void;
+  onAdd: (text: string) => Promise<void>;
+}) {
+  const muted = isLight ? 'text-slate-500' : 'text-[#A9BFA5]';
+  const [items, setItems] = useState<SeoGeoSuggestion[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState<string | null>(null);
+
+  const ask = async () => {
+    setBusy(true);
+    onError(null);
+    try {
+      setItems(await suggestSeoGeo(kind));
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not get suggestions');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const add = async (text: string) => {
+    setAdding(text);
+    try {
+      await onAdd(text);
+      setItems((cur) => (cur ? cur.filter((s) => s.text !== text) : cur));
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not add');
+    } finally {
+      setAdding(null);
+    }
+  };
+
+  const addAll = async () => {
+    if (!items?.length) return;
+    setAdding('*');
+    let failed = 0;
+    for (const s of items) {
+      try {
+        await onAdd(s.text);
+        setItems((cur) => (cur ? cur.filter((x) => x.text !== s.text) : cur));
+      } catch {
+        failed += 1;
+      }
+    }
+    if (failed) onError(`${failed} could not be added. Try them again.`);
+    setAdding(null);
+  };
+
+  return (
+    <div className={`rounded-lg border p-3 space-y-2 ${isLight ? 'border-teal-200 bg-teal-50/60' : 'border-teal-500/30 bg-teal-500/5'}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className={`text-xs ${isLight ? 'text-slate-700' : 'text-[#E8E9D8]'}`}>
+          {kind === 'keywords'
+            ? 'Not sure what to track? We suggest searches that bring in people ready to buy from you.'
+            : 'Not sure what to ask? We suggest questions your future customers would ask an AI.'}
+        </p>
+        <button type="button" disabled={busy} onClick={() => void ask()} className={btnPrimary(isLight)}>
+          {busy ? 'Thinking…' : items ? 'Suggest more' : 'Suggest for my business'}
+        </button>
+      </div>
+      {items && items.length === 0 && <p className={`text-xs ${muted}`}>Nothing new to suggest right now.</p>}
+      {items && items.length > 1 && (
+        <button type="button" disabled={adding !== null} onClick={() => void addAll()} className={btnPrimary(isLight)}>
+          {adding === '*' ? 'Adding…' : `Track all ${items.length}`}
+        </button>
+      )}
+      {items && items.length > 0 && (
+        <ul className="space-y-1.5">
+          {items.map((s) => (
+            <li key={s.text} className="flex items-start justify-between gap-3 text-xs">
+              <span className="min-w-0">
+                <span className="font-semibold">{s.text}</span>
+                <span className={`block text-[11px] ${muted}`}>
+                  {INTENT_LABEL[s.intent]} · {s.why}
+                </span>
+              </span>
+              <button type="button" disabled={adding !== null} onClick={() => void add(s.text)} className={`shrink-0 ${btnSecondary(isLight)}`}>
+                {adding === s.text ? 'Adding…' : 'Track this'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className={`text-[10px] ${muted}`}>These are ideas based on what your business sells, not search volumes. Tracking them shows where you stand.</p>
+    </div>
+  );
+}
+
 function RankTab({ isLight, onError }: Omit<Props, 'tab'>) {
   const muted = isLight ? 'text-slate-500' : 'text-[#A9BFA5]';
   const [keywords, setKeywords] = useState<SeoGeoKeyword[]>([]);
-  const [rows, setRows] = useState<{ keyword: SeoGeoKeyword; latest: { position: number | null; source: string; note?: string } | null }[]>([]);
+  const [rows, setRows] = useState<{ keyword: SeoGeoKeyword; latest: SeoGeoRankSnapshot | null }[]>([]);
   const [serp, setSerp] = useState(false);
+  const [draft, setDraft] = useState<SeoGeoPage | null>(null);
   const [newKw, setNewKw] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -199,27 +306,49 @@ function RankTab({ isLight, onError }: Omit<Props, 'tab'>) {
 
   return (
     <div className="space-y-3">
-      <p className={`text-xs ${muted}`}>
-        GSC positions are query averages (not guaranteed rank). Optional SerpAPI adds sampled SERP checks when{' '}
-        <code className="text-[10px]">SERPAPI_KEY</code> is set on the server.
-      </p>
+      {draft && <PageDraftCard page={draft} isLight={isLight} onClose={() => setDraft(null)} />}
+      <Suggestions
+        kind="keywords"
+        isLight={isLight}
+        onError={onError}
+        onAdd={async (text) => {
+          await addSeoGeoKeyword({ keyword: text });
+          await load();
+        }}
+      />
       <div className="flex flex-wrap gap-2">
         <input
           value={newKw}
           onChange={(e) => setNewKw(e.target.value)}
-          placeholder="Target keyword"
+          placeholder="A search your customers would type, e.g. AI marketing tools"
           className={inputClass(isLight)}
         />
         <button type="button" disabled={busy} onClick={() => void onAdd()} className={btnPrimary(isLight)}>
-          Add keyword
+          Add
         </button>
         <button type="button" disabled={busy} onClick={() => void onSync()} className={btnSecondary(isLight)}>
-          {busy ? <Loader2 className="w-4 h-4 animate-spin inline" /> : 'Sync rankings'}
+          {busy ? <Loader2 className="w-4 h-4 animate-spin inline" /> : 'Update positions'}
         </button>
       </div>
-      <p className={`text-[10px] ${muted}`}>SerpAPI: {serp ? 'configured' : 'not configured'}</p>
+      {(() => {
+        const checked = rows.filter((r) => r.latest);
+        const found = checked.filter((r) => r.latest!.currentPosition != null);
+        if (!checked.length) return null;
+        if (!found.length) return <p className={`text-sm font-semibold`}>0 of {checked.length} tracked searches have shown up on Google yet</p>;
+        const top10 = found.filter((r) => Number(r.latest!.currentPosition) <= 10).length;
+        return (
+          <p className="text-sm font-semibold">
+            {top10} of {checked.length} tracked searches on page 1 of Google
+            <span className={`block text-[11px] font-normal ${muted}`}>{found.length} show up at all. Page 1 means position 10 or better.</span>
+          </p>
+        );
+      })()}
+      <p className={`text-[10px] ${muted}`}>
+        Positions come from Google Search Console (connect Google on the "What to fix" tab). They are averages, so treat them as a guide.
+        {serp ? '' : ' Live position checks are not switched on.'}
+      </p>
       {rows.length === 0 ? (
-        <p className={`text-xs ${muted}`}>No keywords yet.</p>
+        <p className={`text-xs ${muted}`}>Nothing tracked yet. Add a search above.</p>
       ) : (
         <ul className="space-y-2">
           {rows.map(({ keyword, latest }) => (
@@ -230,18 +359,33 @@ function RankTab({ isLight, onError }: Omit<Props, 'tab'>) {
               }`}
             >
               <span className="font-semibold">{keyword.keyword}</span>
-              <span className={muted}>
-                {latest
-                  ? `Pos ${latest.position ?? '—'} (${latest.source})${latest.note ? ` · ${latest.note}` : ''}`
-                  : 'No snapshot — sync'}
+              <span className={`text-right ${latest?.error ? 'text-rose-500' : muted}`}>
+                {latest ? (
+                  latest.currentPosition != null ? (
+                    <>
+                      Google position about {Math.round(latest.currentPosition)}
+                      {latest.change ? ` (${latest.change > 0 ? 'up' : 'down'} ${Math.abs(Math.round(latest.change))})` : ''}
+                      <span className="block text-[10px]">
+                        {latest.impressions ?? 0} views · {latest.clicks ?? 0} clicks in the last 28 days
+                      </span>
+                    </>
+                  ) : (
+                    latest.note || 'Not found yet'
+                  )
+                ) : (
+                  'Click "Update positions"'
+                )}
               </span>
-              <button
-                type="button"
-                className={`text-[10px] underline ${muted}`}
-                onClick={() => void deleteSeoGeoKeyword(keyword.id).then(load)}
-              >
-                Remove
-              </button>
+              <span className="flex items-center gap-3">
+                <WritePageButton topic={keyword.keyword} kind="keyword" isLight={isLight} onError={onError} onDone={setDraft} />
+                <button
+                  type="button"
+                  className={`text-[10px] underline ${muted}`}
+                  onClick={() => void deleteSeoGeoKeyword(keyword.id).then(load)}
+                >
+                  Remove
+                </button>
+              </span>
             </li>
           ))}
         </ul>
@@ -257,6 +401,7 @@ function CitationsTab({ isLight, onError }: Omit<Props, 'tab'>) {
   const [vertexStatus, setVertexStatus] = useState<Awaited<ReturnType<typeof getSeoGeoVertexStatus>> | null>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState<SeoGeoPage | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -292,26 +437,44 @@ function CitationsTab({ isLight, onError }: Omit<Props, 'tab'>) {
 
   return (
     <div className="space-y-3">
-      {vertexStatus && (
+      {draft && <PageDraftCard page={draft} isLight={isLight} onClose={() => setDraft(null)} />}
+      {vertexStatus && !vertexStatus.configured && (
         <p className={`text-[11px] rounded-lg border px-3 py-2 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[rgba(169,191,165,0.15)] bg-[#061816]'}`}>
-          Vertex: {vertexStatus.configured ? `${vertexStatus.mode} · ${vertexStatus.project} · ${vertexStatus.textModel}` : 'not configured'}
-          {vertexStatus.authHint ? ` — ${vertexStatus.authHint}` : ''}
+          The AI checker is not set up on this server yet{vertexStatus.authHint ? ` (${vertexStatus.authHint})` : ''}.
         </p>
       )}
-      <p className={`text-xs ${muted}`}>
-        {dash?.disclaimer ||
-          'Sampled AI visibility checks — citation rate is illustrative, not a ranking or traffic guarantee.'}
-      </p>
-      {dash && (
+      <Suggestions
+        kind="questions"
+        isLight={isLight}
+        onError={onError}
+        onAdd={async (text) => {
+          await addSeoGeoCitationPrompt(text);
+          await load();
+        }}
+      />
+      {dash && dash.totalRuns > 0 ? (
         <p className={`text-sm font-semibold ${isLight ? 'text-slate-800' : 'text-white'}`}>
-          Citation rate: {dash.citationRate}% · {dash.promptsCitingSite}/{dash.totalRuns} runs cited your site
+          The AI named your business in {dash.promptsMentioned} of {dash.totalRuns} answers
+          <span className={`block text-[11px] font-normal ${muted}`}>
+            {dash.promptsCitingSite} of them used your website as a source. Latest answer for each question, from Gemini with Google Search.
+          </span>
         </p>
+      ) : (
+        <p className={`text-xs ${muted}`}>No checks run yet. Add a question below, then click "Check now".</p>
+      )}
+      <p className={`text-[10px] ${muted}`}>Each result is one live answer. Other AI tools and other days can give different answers.</p>
+      {dash && dash.topSources.length > 0 && (
+        <div className={`text-xs rounded-lg border px-3 py-2 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[rgba(169,191,165,0.15)] bg-[#061816]'}`}>
+          <p className="font-semibold">Websites the AI relied on for your questions</p>
+          <p className={`text-[11px] ${muted}`}>To be named, be on these. Get listed or mentioned there, with the same facts as your own site.</p>
+          <p className="mt-1">{dash.topSources.map((s) => `${s.site} (${s.questions})`).join(' · ')}</p>
+        </div>
       )}
       <div className="flex flex-wrap gap-2">
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="GEO prompt to test (e.g. best plumber in …)"
+          placeholder="A question a customer might ask, e.g. best AI marketing tool for small business"
           className={inputClass(isLight)}
         />
         <button
@@ -327,21 +490,43 @@ function CitationsTab({ isLight, onError }: Omit<Props, 'tab'>) {
           }
           className={btnSecondary(isLight)}
         >
-          Add prompt
+          Add question
         </button>
         <button type="button" disabled={busy} onClick={() => void onRun()} className={btnPrimary(isLight)}>
-          Run citation tests
+          {busy ? 'Checking…' : 'Check now'}
         </button>
       </div>
       <ul className={`text-xs space-y-2 ${muted}`}>
-        {prompts.map((p) => (
-          <li key={p.id} className="flex justify-between gap-2">
-            <span>{p.prompt}</span>
-            <button type="button" className="underline shrink-0" onClick={() => void deleteSeoGeoCitationPrompt(p.id).then(load)}>
-              Remove
-            </button>
-          </li>
-        ))}
+        {prompts.map((p) => {
+          const run: SeoGeoCitationRun | undefined = dash?.prompts.find((d) => d.prompt.id === p.id)?.recentRuns[0];
+          const named = run && !run.error && (run.brandMentioned || run.domainCited);
+          return (
+            <li key={p.id} className={`rounded-lg border px-3 py-2 space-y-1 ${isLight ? 'border-slate-200' : 'border-[rgba(169,191,165,0.15)]'}`}>
+              <div className="flex justify-between gap-2">
+                <span className={`font-semibold ${isLight ? 'text-slate-800' : 'text-white'}`}>{p.prompt}</span>
+                <span className="flex items-center gap-3 shrink-0">
+                  <WritePageButton topic={p.prompt} kind="question" isLight={isLight} onError={onError} onDone={setDraft} />
+                  <button type="button" className="underline" onClick={() => void deleteSeoGeoCitationPrompt(p.id).then(load)}>
+                    Remove
+                  </button>
+                </span>
+              </div>
+              {!run && <p>Not checked yet.</p>}
+              {run?.error && <p className="text-rose-500">Check failed: {run.error}</p>}
+              {run && !run.error && (
+                <>
+                  <p className={named ? 'text-emerald-500 font-semibold' : 'text-amber-500 font-semibold'}>
+                    {run.domainCited ? 'Named, and your website was a source' : run.brandMentioned ? 'Named in the answer' : 'Your business was not mentioned'}
+                  </p>
+                  {run.answerExcerpt && <p className="line-clamp-3">{run.answerExcerpt}</p>}
+                  {!!run.sources?.length && (
+                    <p className="text-[10px]">Sources used: {[...new Set(run.sources.map((s) => s.site).filter(Boolean))].slice(0, 6).join(', ')}</p>
+                  )}
+                </>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -351,7 +536,6 @@ function FixesTab({ isLight, onError }: Omit<Props, 'tab'>) {
   const muted = isLight ? 'text-slate-500' : 'text-[#A9BFA5]';
   const [fixes, setFixes] = useState<SeoGeoFix[]>([]);
   const [wp, setWp] = useState(false);
-  const [recId, setRecId] = useState('');
   const [pageId, setPageId] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -369,35 +553,12 @@ function FixesTab({ isLight, onError }: Omit<Props, 'tab'>) {
     void load();
   }, [load]);
 
-  const onPropose = async () => {
-    if (!recId.trim()) return;
-    setBusy(true);
-    onError(null);
-    try {
-      await proposeSeoGeoFix({ recommendationId: recId.trim(), issueType: 'generic' });
-      await load();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : 'Propose failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <div className="space-y-3">
       <p className={`text-xs ${muted}`}>
-        Approve-then-apply only. WordPress REST applies title/excerpt when{' '}
-        <code className="text-[10px]">WORDPRESS_*</code> env vars are set ({wp ? 'configured' : 'not configured'}).
+        Nothing changes on your website until you approve it.{' '}
+        {wp ? '' : 'Your website is not linked for automatic changes yet, so approved fixes are only recorded here.'}
       </p>
-      <div className="flex flex-wrap gap-2 items-end">
-        <label className={`text-[11px] ${muted}`}>
-          Recommendation ID
-          <input value={recId} onChange={(e) => setRecId(e.target.value)} className={`block mt-1 ${inputClass(isLight)}`} />
-        </label>
-        <button type="button" disabled={busy} onClick={() => void onPropose()} className={btnSecondary(isLight)}>
-          Propose fix draft
-        </button>
-      </div>
       <ul className="space-y-2">
         {fixes.map((f) => (
           <li
@@ -406,10 +567,8 @@ function FixesTab({ isLight, onError }: Omit<Props, 'tab'>) {
               isLight ? 'border-slate-200 bg-slate-50' : 'border-[rgba(169,191,165,0.15)] bg-[#061816]'
             }`}
           >
-            <p className="font-semibold">{f.recommendationId}</p>
-            <p className={muted}>
-              {f.draft.field}: {f.status}
-            </p>
+            <p className="font-semibold">Proposed new {f.draft.field}</p>
+            <p className={muted}>Status: {f.status}</p>
             <pre className={`text-[10px] whitespace-pre-wrap max-h-24 overflow-auto ${muted}`}>{f.draft.after}</pre>
             <div className="flex flex-wrap gap-2">
               {wp && (
@@ -433,20 +592,20 @@ function FixesTab({ isLight, onError }: Omit<Props, 'tab'>) {
                 }
                 className={btnPrimary(isLight)}
               >
-                Approve & apply
+                Approve
               </button>
               <button
                 type="button"
                 onClick={() => void rollbackSeoGeoFix(f.recommendationId).then(load).catch((e) => onError(e.message))}
                 className={btnSecondary(isLight)}
               >
-                Rollback record
+                Undo
               </button>
             </div>
           </li>
         ))}
       </ul>
-      {fixes.length === 0 && <p className={`text-xs ${muted}`}>No fix drafts — propose from a recommendation ID from the Audit tab.</p>}
+      {fixes.length === 0 && <p className={`text-xs ${muted}`}>No drafts yet. On the "What to fix" tab, click "Draft a fix" on any item.</p>}
     </div>
   );
 }
@@ -454,24 +613,46 @@ function FixesTab({ isLight, onError }: Omit<Props, 'tab'>) {
 export type SeoGeoPlatformTab = 'audit' | TabId;
 
 export function SeoGeoToolTabPanel({ tab, isLight, onError }: Props) {
+  const muted = isLight ? 'text-slate-500' : 'text-[#A9BFA5]';
   switch (tab) {
-    case 'crawl':
-      return <CrawlTab isLight={isLight} onError={onError} />;
     case 'rank':
       return <RankTab isLight={isLight} onError={onError} />;
     case 'citations':
       return <CitationsTab isLight={isLight} onError={onError} />;
-    case 'fixes':
-      return <FixesTab isLight={isLight} onError={onError} />;
+    case 'advanced':
+      return (
+        <div className="space-y-6">
+          <section className="space-y-2">
+            <h3 className="text-sm font-bold">Pages written for you</h3>
+            <SavedPages isLight={isLight} onError={onError} />
+          </section>
+          <section className="space-y-2">
+            <h3 className="text-sm font-bold">Scan the whole website</h3>
+            <p className={`text-xs ${muted}`}>The to-do list checks your main pages. A full scan visits every page it can find, so it takes longer.</p>
+            <CrawlTab isLight={isLight} onError={onError} />
+          </section>
+          <section className="space-y-2">
+            <h3 className="text-sm font-bold">Drafted fixes</h3>
+            <FixesTab isLight={isLight} onError={onError} />
+          </section>
+        </div>
+      );
     default:
       return null;
   }
 }
 
+/** What each tab is for, shown above it so nobody has to guess. */
+export const TAB_HELP: Record<SeoGeoPlatformTab, string> = {
+  audit: 'We check your website and list what to fix so more people find you. The most important ones come first.',
+  rank: 'Add the words your customers search for, and see where your website shows up on Google for them.',
+  citations: 'People now ask ChatGPT, Gemini and similar tools for recommendations. Add a question a customer might ask, and we check whether the AI mentions your business.',
+  advanced: 'Pages we wrote for you, a deeper website scan, and fixes for your website.',
+};
+
 export const PLATFORM_TABS: { id: SeoGeoPlatformTab; label: string }[] = [
-  { id: 'audit', label: 'Audit' },
-  { id: 'crawl', label: 'Crawl health' },
-  { id: 'rank', label: 'Rank tracking' },
-  { id: 'citations', label: 'AI visibility' },
-  { id: 'fixes', label: 'Auto-fix' },
+  { id: 'audit', label: 'What to fix' },
+  { id: 'rank', label: 'Google ranking' },
+  { id: 'citations', label: 'AI answers' },
+  { id: 'advanced', label: 'More tools' },
 ];

@@ -24,6 +24,8 @@ import {
   type XStatus,
 } from '../../legacy/services/xService';
 import {
+  connectWhatsApp,
+  disconnectWhatsApp,
   getWhatsAppStatus,
   sendWhatsAppMessage,
   type WhatsAppStatus,
@@ -46,11 +48,13 @@ import {
   type GoogleAdsStatus,
   type GoogleSheetsStatus,
 } from '../../legacy/services/googleIntegrationService';
+import { getConnections as getPlannerConnections } from '../../legacy/services/plannerService';
 import { getConnectionsHealth, type ConnectionsHealth } from '../../legacy/services/connectionsService';
 import { getSeoGeoIntegrations, type SeoGeoIntegrationsStatus } from '../../legacy/services/seoGeoService';
 import type { NavCategory, SubCategory } from '../../types';
 import ConnectionsOverview, { type ConnectionsTab } from './ConnectionsOverview';
 import SeoGeoConnectionsPanel from './SeoGeoConnectionsPanel';
+import EmailConnect from './EmailConnect';
 
 const CONN_TABS: { id: ConnectionsTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -155,6 +159,9 @@ export default function ChannelsView({ onNavigate }: ChannelsViewProps = {}) {
 
   const [waTo, setWaTo] = useState('');
   const [waText, setWaText] = useState('');
+  const [waToken, setWaToken] = useState('');
+  const [waPhoneId, setWaPhoneId] = useState('');
+  const [waWabaId, setWaWabaId] = useState('');
   const [emFrom, setEmFrom] = useState('');
   const [emSubject, setEmSubject] = useState('Product inquiry');
   const [emText, setEmText] = useState('');
@@ -167,11 +174,14 @@ export default function ChannelsView({ onNavigate }: ChannelsViewProps = {}) {
   const [connTab, setConnTab] = useState<ConnectionsTab>('overview');
   const [health, setHealth] = useState<ConnectionsHealth | null>(null);
   const [seoInt, setSeoInt] = useState<SeoGeoIntegrationsStatus | null>(null);
+  const [liConn, setLiConn] = useState<{ connected: boolean; detail?: string } | null>(null);
+  const [liCm, setLiCm] = useState<{ configured: boolean; missing: string[]; connected: boolean; expired: boolean } | null>(null);
+  const [liCmError, setLiCmError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [i, f, x, w, e, ga, sh, al, h, seo] = await Promise.all([
+      const [i, f, x, w, e, ga, sh, al, h, seo, planner] = await Promise.all([
         getInstagramStatus().catch(() => null),
         getFacebookStatus().catch(() => null),
         getXStatus().catch(() => null),
@@ -182,7 +192,15 @@ export default function ChannelsView({ onNavigate }: ChannelsViewProps = {}) {
         getAdsLandingConfig().catch(() => null),
         getConnectionsHealth().catch(() => null),
         getSeoGeoIntegrations().catch(() => null),
+        getPlannerConnections().catch(() => null),
       ]);
+      setLiConn(planner?.linkedin ?? null);
+      try {
+        const r = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/linkedin-cm/status`, { credentials: 'include' });
+        setLiCm(r.ok ? await r.json() : null);
+      } catch {
+        setLiCm(null);
+      }
       setIg(i);
       setFb(f);
       setXSt(x);
@@ -202,6 +220,19 @@ export default function ChannelsView({ onNavigate }: ChannelsViewProps = {}) {
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  // The LinkedIn popup reports back with a message; show the new connection without a manual refresh.
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'LINKEDIN_AUTH_SUCCESS' || e.data?.type === 'LINKEDIN_AUTH_ERROR') void refresh();
+      if (e.data?.type === 'LINKEDIN_CM_AUTH_SUCCESS' || e.data?.type === 'LINKEDIN_CM_AUTH_ERROR') {
+        setLiCmError(e.data.type === 'LINKEDIN_CM_AUTH_ERROR' ? String(e.data.error || 'LinkedIn connection failed') : null);
+        void refresh();
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
   }, [refresh]);
 
   useEffect(() => {
@@ -623,9 +654,9 @@ export default function ChannelsView({ onNavigate }: ChannelsViewProps = {}) {
 
         <ChannelCard
           title="LinkedIn"
-          subtitle="Publish & schedule from Social Hub"
-          badgeOk={Boolean(health?.linkedin?.configured)}
-          badgeLabel={health?.linkedin?.configured ? 'App configured' : 'Not configured'}
+          subtitle={liConn?.connected && liConn.detail ? `${liConn.detail} · publish & schedule` : 'Publish & schedule from Social Hub'}
+          badgeOk={Boolean(liConn?.connected || health?.linkedin?.configured)}
+          badgeLabel={liConn?.connected ? 'Connected' : health?.linkedin?.configured ? 'App configured' : 'Not configured'}
           footer={
             <div className="flex flex-wrap gap-2">
               <button
@@ -645,6 +676,22 @@ export default function ChannelsView({ onNavigate }: ChannelsViewProps = {}) {
               >
                 Connect LinkedIn
               </button>
+              <button
+                type="button"
+                disabled={liCm ? !liCm.configured : false}
+                onClick={() => {
+                  const w = 600;
+                  const h = 700;
+                  window.open(
+                    `${import.meta.env.VITE_API_URL || ''}/auth/linkedin-cm`,
+                    'LinkedIn comments',
+                    `width=${w},height=${h},left=${window.screenX + (window.outerWidth - w) / 2},top=${window.screenY + (window.outerHeight - h) / 2}`
+                  );
+                }}
+                className={`px-4 py-2 text-xs font-semibold rounded-lg cursor-pointer disabled:opacity-50 ${btnGhost}`}
+              >
+                {liCm?.connected ? 'Reconnect comments & analytics' : 'Connect comments & analytics'}
+              </button>
               {onNavigate ? (
                 <button
                   type="button"
@@ -660,6 +707,17 @@ export default function ChannelsView({ onNavigate }: ChannelsViewProps = {}) {
           <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-[#A9BFA5]'}`}>
             Connect here once, then create and schedule in Social Hub with Instagram, Facebook, and X.
           </p>
+          <p className={`text-xs leading-relaxed mt-2 ${isLight ? 'text-slate-600' : 'text-[#A9BFA5]'}`}>
+            Comments and analytics:{' '}
+            {liCm?.connected
+              ? 'connected. Comments are read, replies are sent and post numbers are shown.'
+              : liCm?.expired
+                ? 'the sign-in has expired. Reconnect it.'
+                : liCm && !liCm.configured
+                  ? `not set up. Missing in the backend settings: ${liCm.missing.join(', ')}.`
+                  : 'not connected yet.'}
+          </p>
+          {liCmError ? <p className="text-xs mt-1 text-rose-400">{liCmError}</p> : null}
         </ChannelCard>
       </div>
       )}
@@ -723,8 +781,73 @@ export default function ChannelsView({ onNavigate }: ChannelsViewProps = {}) {
         <p className={`text-xs mb-3 ${isLight ? 'text-slate-600' : 'text-[#A9BFA5]'}`}>
           {wa?.configured
             ? 'Cloud API ready. Inbound webhooks land in Lead Inbox; use the form to test outbound.'
-            : 'Set WHATSAPP_TOKEN + WHATSAPP_PHONE_NUMBER_ID in backend env.'}
+            : 'Connect your WhatsApp Business number below. Point your Meta app webhook at /api/whatsapp/webhook.'}
         </p>
+        <div className="grid gap-3 sm:grid-cols-2 mb-4">
+          <label className={`block text-xs font-semibold sm:col-span-2 ${isLight ? 'text-slate-600' : 'text-[#A9BFA5]'}`}>
+            Permanent access token
+            <input
+              type="password"
+              autoComplete="off"
+              className={inputClass}
+              value={waToken}
+              onChange={(e) => setWaToken(e.target.value)}
+              placeholder={wa?.configured ? 'Enter a new token to replace the current one' : 'EAAG…'}
+            />
+          </label>
+          <label className={`block text-xs font-semibold ${isLight ? 'text-slate-600' : 'text-[#A9BFA5]'}`}>
+            Phone number ID
+            <input className={inputClass} value={waPhoneId} onChange={(e) => setWaPhoneId(e.target.value)} placeholder="1234567890" />
+          </label>
+          <label className={`block text-xs font-semibold ${isLight ? 'text-slate-600' : 'text-[#A9BFA5]'}`}>
+            Business account ID (optional)
+            <input className={inputClass} value={waWabaId} onChange={(e) => setWaWabaId(e.target.value)} placeholder="2134301964104251" />
+          </label>
+          <div className="sm:col-span-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy !== null || !waToken.trim() || !waPhoneId.trim()}
+              onClick={async () => {
+                setBusy('wa-connect');
+                setError(null);
+                setNote(null);
+                try {
+                  setWa(await connectWhatsApp({ token: waToken.trim(), phoneNumberId: waPhoneId.trim(), businessAccountId: waWabaId.trim() }));
+                  setWaToken('');
+                  setNote('WhatsApp connected. Credentials were verified with Meta.');
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Could not connect WhatsApp');
+                } finally {
+                  setBusy(null);
+                }
+              }}
+              className={`px-4 py-2 text-xs font-semibold rounded-lg disabled:opacity-45 cursor-pointer ${btnSecondary}`}
+            >
+              {busy === 'wa-connect' ? 'Verifying…' : wa?.configured ? 'Replace credentials' : 'Connect WhatsApp'}
+            </button>
+            {wa?.configured && (
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={async () => {
+                  setBusy('wa-disconnect');
+                  setError(null);
+                  try {
+                    setWa(await disconnectWhatsApp());
+                    setNote('WhatsApp disconnected for this workspace.');
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Could not disconnect');
+                  } finally {
+                    setBusy(null);
+                  }
+                }}
+                className={`px-4 py-2 text-xs font-semibold rounded-lg disabled:opacity-45 cursor-pointer ${isLight ? 'text-rose-600 hover:bg-rose-50' : 'text-rose-300 hover:bg-rose-950/30'}`}
+              >
+                Disconnect
+              </button>
+            )}
+          </div>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className={`block text-xs font-semibold ${isLight ? 'text-slate-600' : 'text-[#A9BFA5]'}`}>
             To (E.164 / digits)
@@ -749,9 +872,9 @@ export default function ChannelsView({ onNavigate }: ChannelsViewProps = {}) {
 
       <ChannelCard
         title="Email"
-        subtitle="SMTP outbound · inbound webhook · lead agent auto-reply"
+        subtitle={em?.account?.connected && em.from ? `${em.from} · agent replies by email` : 'Connect your business email · agent replies by email'}
         badgeOk={Boolean(em?.configured)}
-        badgeLabel={em?.configured ? 'SMTP ready' : 'Configure SMTP'}
+        badgeLabel={em?.account?.connected ? 'Connected' : em?.configured ? 'SMTP ready' : 'Not connected'}
         footer={
           <>
             <button
@@ -808,20 +931,10 @@ export default function ChannelsView({ onNavigate }: ChannelsViewProps = {}) {
           </>
         }
       >
-        <p className={`text-xs mb-3 ${isLight ? 'text-slate-600' : 'text-[#A9BFA5]'}`}>
-          {em?.configured
-            ? `Sending as ${em.from}. Forward provider inbound mail to the webhook below.`
-            : 'Set SMTP_HOST, SMTP_USER, SMTP_PASS, and EMAIL_FROM in backend .env. You can still simulate inbound without SMTP.'}
+        <EmailConnect onChanged={() => void refresh()} />
+        <p className={`text-[11px] mb-3 ${isLight ? 'text-slate-500' : 'text-[#A9BFA5]/80'}`}>
+          Test tools below: simulate a customer email without sending a real one.
         </p>
-        {em?.publicInboundUrl ? (
-          <p className={`text-[11px] font-mono break-all mb-3 ${isLight ? 'text-slate-500' : 'text-[#A9BFA5]/80'}`}>
-            Webhook: {em.publicInboundUrl}
-          </p>
-        ) : (
-          <p className={`text-[11px] mb-3 ${isLight ? 'text-slate-500' : 'text-[#A9BFA5]/80'}`}>
-            Inbound POST: <code className="font-mono">/api/email/inbound</code> (JSON: from, subject, text)
-          </p>
-        )}
         <div className="grid gap-3 sm:grid-cols-2">
           <label className={`block text-xs font-semibold sm:col-span-2 ${isLight ? 'text-slate-600' : 'text-[#A9BFA5]'}`}>
             Simulate inbound — From

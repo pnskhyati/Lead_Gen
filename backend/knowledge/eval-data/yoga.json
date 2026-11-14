@@ -1,0 +1,190 @@
+{
+  "corpus": "yoga-corpus.txt",
+  "note": "Independent holdout dataset (yoga studio). Questions are paraphrased so keyword overlap alone cannot find them.",
+  "questions": [
+    {
+      "q": "what time do you open on weekdays",
+      "answerable": true
+    },
+    {
+      "q": "are you closed on Sundays",
+      "answerable": true
+    },
+    {
+      "q": "do you have yoga for kids",
+      "answerable": true
+    },
+    {
+      "q": "how much for a single session without a membership",
+      "answerable": true
+    },
+    {
+      "q": "what does the monthly pass cost",
+      "answerable": true
+    },
+    {
+      "q": "is there a discount for students",
+      "answerable": true
+    },
+    {
+      "q": "can I try a class before paying",
+      "answerable": true
+    },
+    {
+      "q": "how do I cancel a booking",
+      "answerable": true
+    },
+    {
+      "q": "can I pause my membership while travelling",
+      "answerable": true
+    },
+    {
+      "q": "do I need to bring my own mat",
+      "answerable": true
+    },
+    {
+      "q": "who is the main instructor",
+      "answerable": true
+    },
+    {
+      "q": "do you train people to become teachers",
+      "answerable": true
+    },
+    {
+      "q": "how much does the teacher training cost",
+      "answerable": true
+    },
+    {
+      "q": "do you offer online classes",
+      "answerable": true
+    },
+    {
+      "q": "can pregnant women attend",
+      "answerable": true
+    },
+    {
+      "q": "I have never done yoga, is that okay",
+      "answerable": true
+    },
+    {
+      "q": "do you accept UPI payments",
+      "answerable": true
+    },
+    {
+      "q": "is there parking for my car",
+      "answerable": true
+    },
+    {
+      "q": "how many people are in a class",
+      "answerable": true
+    },
+    {
+      "q": "do you have private one-on-one lessons and how much",
+      "answerable": true
+    },
+    {
+      "q": "what happens if I am late to class",
+      "answerable": true
+    },
+    {
+      "q": "is the room air conditioned",
+      "answerable": true
+    },
+    {
+      "q": "can I extend my 10 class pack",
+      "answerable": true
+    },
+    {
+      "q": "what meditation sessions do you run",
+      "answerable": true
+    },
+    {
+      "q": "what is your phone number",
+      "answerable": true
+    },
+    {
+      "q": "are there showers and lockers",
+      "answerable": true
+    },
+    {
+      "q": "do you have a cafe or smoothie bar",
+      "answerable": false
+    },
+    {
+      "q": "can I bring my dog to class",
+      "answerable": false
+    },
+    {
+      "q": "do you offer Pilates reformer classes",
+      "answerable": false
+    },
+    {
+      "q": "what is the price of a 6 month membership",
+      "answerable": false
+    },
+    {
+      "q": "do you have a branch in Mumbai",
+      "answerable": false
+    },
+    {
+      "q": "do you offer EMI for the teacher training",
+      "answerable": false
+    },
+    {
+      "q": "what are the fees for a 300 hour course",
+      "answerable": false
+    },
+    {
+      "q": "who is the owner of the studio",
+      "answerable": false
+    },
+    {
+      "q": "when was the studio founded",
+      "answerable": false
+    },
+    {
+      "q": "what is the weather in Pune this weekend",
+      "answerable": false
+    },
+    {
+      "q": "recommend a good vegan restaurant nearby",
+      "answerable": false
+    },
+    {
+      "q": "how do I fix my WiFi",
+      "answerable": false
+    },
+    {
+      "q": "who won the IPL final",
+      "answerable": false
+    },
+    {
+      "q": "write a poem about autumn",
+      "answerable": false
+    },
+    {
+      "q": "can I get a refund if I am unhappy with a class",
+      "answerable": false
+    },
+    {
+      "q": "do you offer ayurvedic massage",
+      "answerable": false
+    },
+    {
+      "q": "what is the capital of Japan",
+      "answerable": false
+    },
+    {
+      "q": "can I pay with Apple Pay",
+      "answerable": false
+    },
+    {
+      "q": "do you have childcare while I attend class",
+      "answerable": false
+    },
+    {
+      "q": "do you sell yoga clothing and props",
+      "answerable": false
+    }
+  ]
+}

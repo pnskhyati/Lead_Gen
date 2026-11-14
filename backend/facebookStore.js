@@ -1,75 +1,71 @@
-const fs = require('fs');
 const path = require('path');
+const { createWorkspaceStore } = require('./wsStore');
 
-const DATA_DIR = path.join(__dirname, 'data');
-const STORE_PATH = path.join(DATA_DIR, 'facebook.json');
-
-function ensureStore() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(STORE_PATH)) {
-    fs.writeFileSync(
-      STORE_PATH,
-      JSON.stringify({ account: null, seenCommentIds: [], leads: [] }, null, 2)
-    );
-  }
-}
-
-function read() {
-  ensureStore();
-  try {
-    return JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
-  } catch {
-    return { account: null, seenCommentIds: [], leads: [] };
-  }
-}
-
-function write(data) {
-  ensureStore();
-  fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2));
-}
+const store = createWorkspaceStore(path.join(__dirname, 'data', 'facebook.json'), {
+  account: null,
+  seenCommentIds: [],
+  leads: [],
+});
 
 function getAccount() {
-  return read().account;
+  return store.read().account;
 }
 
 function setAccount(account) {
-  const data = read();
-  data.account = account;
-  write(data);
+  store.update((s) => {
+    s.account = account;
+  });
   return account;
 }
 
 function clearAccount() {
-  const data = read();
-  data.account = null;
-  write(data);
+  store.update((s) => {
+    s.account = null;
+  });
 }
 
 function getSeenCommentIds() {
-  return new Set(read().seenCommentIds || []);
+  return new Set(store.read().seenCommentIds || []);
 }
 
 function markCommentsSeen(ids) {
-  const data = read();
-  const set = new Set([...(data.seenCommentIds || []), ...ids]);
-  data.seenCommentIds = Array.from(set).slice(-2000);
-  write(data);
+  store.update((s) => {
+    s.seenCommentIds = Array.from(new Set([...(s.seenCommentIds || []), ...ids])).slice(-2000);
+  });
 }
 
 function appendLeads(leads) {
-  const data = read();
-  const existingIds = new Set((data.leads || []).map((l) => l.externalId).filter(Boolean));
-  const fresh = leads.filter((l) => l.externalId && !existingIds.has(l.externalId));
-  data.leads = [...fresh, ...(data.leads || [])].slice(0, 200);
-  write(data);
+  let fresh = [];
+  store.update((s) => {
+    const existingIds = new Set((s.leads || []).map((l) => l.externalId).filter(Boolean));
+    fresh = leads.filter((l) => l.externalId && !existingIds.has(l.externalId));
+    s.leads = [...fresh, ...(s.leads || [])].slice(0, 200);
+  });
   return fresh;
 }
 
 function getStoredLeads() {
-  return read().leads || [];
+  return store.read().leads || [];
+}
+
+/** Which workspace owns the connected Facebook Page (or its linked Instagram account) with this id. */
+function findWorkspaceByAccountId(id) {
+  const target = String(id || '');
+  if (!target) return null;
+  for (const [ws, state] of store.entries()) {
+    const a = state.account;
+    if (a && [a.pageId, a.igUserId].filter(Boolean).map(String).includes(target)) return ws;
+  }
+  return null;
+}
+
+/** Workspaces that have a Facebook Page connected (used by the reply poller). */
+function workspaceIds() {
+  return store.entries().filter(([, s]) => s.account).map(([id]) => id);
 }
 
 module.exports = {
+  workspaceIds,
   getAccount,
   setAccount,
   clearAccount,
@@ -77,4 +73,5 @@ module.exports = {
   markCommentsSeen,
   appendLeads,
   getStoredLeads,
+  findWorkspaceByAccountId,
 };

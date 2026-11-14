@@ -34,6 +34,8 @@ export type NavCategory =
   | 'followups'
   | 'agent'
   | 'intelligence'
+  | 'seo'
+  | 'autoreply'
   // Backwards-compatible aliases
   | 'insights'
   | 'creative-lab'
@@ -85,6 +87,7 @@ export type SubCategory =
   | 'analytics-overview'
   | 'lead-analytics'
   | 'channel-performance'
+  | 'post-performance'
   // 7. Settings subcategories
   | 'business'
   | 'ai-knowledge'
@@ -166,7 +169,7 @@ export interface Lead {
   name: string;
   company: string;
   email: string;
-  source: 'Organic Search' | 'LinkedIn' | 'Referral' | 'X (Twitter)' | 'Newsletter' | 'Product Hunt' | 'Instagram' | 'Website' | 'WhatsApp' | 'Campaign' | 'Manual';
+  source: 'Organic Search' | 'LinkedIn' | 'Referral' | 'X (Twitter)' | 'Newsletter' | 'Product Hunt' | 'Instagram' | 'Website' | 'WhatsApp' | 'Campaign' | 'Manual' | 'Facebook' | 'X' | 'Email' | 'Google Ads';
   status: 'New' | 'Contacted' | 'Qualified' | 'Proposal' | 'Converted' | 'Engaged' | 'Won' | 'Lost';
   value: string;
   lastActivity: string;

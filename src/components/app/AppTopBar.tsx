@@ -23,6 +23,8 @@ import {
 } from 'lucide-react';
 import { NavCategory, SubCategory } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
+import { fetchLeads } from '../../legacy/services/leadStore';
+import { listAutoReplyItems } from '../../legacy/services/autoReplyService';
 
 interface AppTopBarProps {
   activeCategory: NavCategory;
@@ -107,63 +109,68 @@ export default function AppTopBar({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onTriggerNew]);
 
-  // Notifications State (Page 9 spec)
-  const [notifications, setNotifications] = useState([
-    {
-      id: 'n-1',
-      group: 'TODAY',
-      unread: true,
-      title: 'Rahul Sharma needs a human',
-      time: '4m',
-      detail: 'WhatsApp · asked for custom pricing',
-      category: 'inbox' as NavCategory,
-      sub: 'inbox' as SubCategory
-    },
-    {
-      id: 'n-2',
-      group: 'TODAY',
-      unread: true,
-      title: 'Aster Labs qualified as Hot',
-      time: '22m',
-      detail: 'Score 92 · budget & timeline verified',
-      category: 'leads' as NavCategory,
-      sub: 'all-leads' as SubCategory
-    },
-    {
-      id: 'n-3',
-      group: 'TODAY',
-      unread: true,
-      title: 'Follow-up due: Nova Retail',
-      time: '1h',
-      detail: 'Priya Mehta · Email revised proposal',
-      category: 'leads' as NavCategory,
-      sub: 'follow-ups' as SubCategory
-    },
-    {
-      id: 'n-4',
-      group: 'EARLIER',
-      unread: false,
-      title: '"Diwali offer" post published',
-      time: 'Yest.',
-      detail: 'Scheduled broadcast live on Instagram',
-      category: 'content' as NavCategory,
-      sub: 'schedule' as SubCategory
-    },
-    {
-      id: 'n-5',
-      group: 'EARLIER',
-      unread: false,
-      title: 'Aisha joined the workspace',
-      time: 'Mon',
-      detail: 'Role: Marketing · Invited by Owner',
-      category: 'settings' as NavCategory,
-      sub: 'team' as SubCategory
+  // Notifications: built from what is really waiting for you (people to talk to, follow-ups due, replies to approve).
+  type Notif = { id: string; group: 'TODAY' | 'EARLIER'; unread: boolean; title: string; time: string; detail: string; category: NavCategory; sub: SubCategory };
+  const [notifications, setNotifications] = useState<Notif[]>([]);
+
+  const readSeen = (): Set<string> => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem('nexora-seen-notifications') || '[]'));
+    } catch {
+      return new Set();
     }
-  ]);
+  };
+
+  useEffect(() => {
+    let alive = true;
+    const ago = (iso: string) => {
+      const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+      if (mins < 1) return 'now';
+      if (mins < 60) return `${mins}m`;
+      return mins < 1440 ? `${Math.round(mins / 60)}h` : `${Math.round(mins / 1440)}d`;
+    };
+    const load = async () => {
+      const [leads, replies] = await Promise.all([fetchLeads().catch(() => []), listAutoReplyItems().catch(() => [])]);
+      const seen = readSeen();
+      const now = Date.now();
+      type Raw = { id: string; at: string; title: string; time: string; detail: string; category: NavCategory; sub: SubCategory };
+      const out: Raw[] = [];
+      const push = (id: string, at: string, title: string, detail: string, category: NavCategory, sub: SubCategory) =>
+        out.push({ id, at, title, time: ago(at), detail, category, sub });
+      for (const l of leads) {
+        const who = l.author?.trim() || l.phone || 'Someone';
+        if (l.status === 'handed_off') push(`h-${l.id}`, l.lastMessageAt || l.createdAt, `${who} needs a person`, `${l.platform} · ${l.handoffReason || 'asked for a human'}`, 'inbox', 'inbox');
+        else if (l.temperature === 'hot' && now - new Date(l.createdAt).getTime() < 3 * 86_400_000) push(`hot-${l.id}`, l.createdAt, `${who} is a hot lead`, `${l.platform} · score ${l.score}`, 'leads', 'all-leads');
+        for (const f of l.followUps || []) {
+          if (f.status === 'pending' && new Date(f.dueAt).getTime() <= now) push(`f-${f.id}`, f.dueAt, `Follow-up due: ${who}`, f.title, 'followups', 'follow-ups');
+        }
+      }
+      for (const r of replies) {
+        if (r.status === 'pending_review') push(`r-${r.id}`, r.receivedAt, `Reply waiting for your OK`, `${r.author || 'Someone'} on ${r.platform}: ${r.text.slice(0, 60)}`, 'autoreply', 'overview');
+        else if (r.status === 'needs_human') push(`n-${r.id}`, r.receivedAt, `${r.author || 'Someone'} needs a person`, `${r.platform} comment: ${r.text.slice(0, 60)}`, 'autoreply', 'overview');
+      }
+      const list = out
+        .sort((a, b) => b.at.localeCompare(a.at))
+        .slice(0, 12)
+        .map(({ at, ...n }) => ({ ...n, group: (now - new Date(at).getTime() < 86_400_000 ? 'TODAY' : 'EARLIER') as 'TODAY' | 'EARLIER', unread: !seen.has(n.id) }));
+      if (alive) setNotifications(list);
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 60_000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const unreadCount = notifications.filter(n => n.unread).length;
 
   const markAllRead = () => {
+    try {
+      localStorage.setItem('nexora-seen-notifications', JSON.stringify(notifications.map((n) => n.id)));
+    } catch {
+      /* ignore */
+    }
     setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
   };
 
@@ -182,6 +189,8 @@ export default function AppTopBar({
       case 'followups': return 'Follow-ups';
       case 'agent': return 'Engagement Agent';
       case 'intelligence': return 'Market Intelligence';
+      case 'seo': return 'SEO / GEO';
+      case 'autoreply': return 'Auto-reply';
       default: return cat;
     }
   };
@@ -474,6 +483,9 @@ export default function AppTopBar({
                   <div className="px-3.5 py-1.5 bg-[#051513] text-[10px] uppercase tracking-wider text-[#A9BFA5]/60 font-semibold">
                     TODAY
                   </div>
+                  {notifications.length === 0 && (
+                    <p className="p-4 text-[11px] text-[#A9BFA5]/70">Nothing needs you right now. New handoffs, hot leads, due follow-ups and replies to approve show up here.</p>
+                  )}
                   {notifications.filter(n => n.group === 'TODAY').map(notif => (
                     <div
                       key={notif.id}
@@ -580,7 +592,7 @@ export default function AppTopBar({
               <span className={`hidden sm:inline font-mono text-xs font-extrabold ${
                 theme === 'light' ? 'text-[#000000]' : 'text-[#E8E9D8]'
               }`}>
-                {currentUser?.workspace || currentUser?.name || 'Acme'}
+                {currentUser?.workspace || currentUser?.name || 'Workspace'}
               </span>
               <ChevronDown className="w-3.5 h-3.5 stroke-[2.5]" />
             </button>
@@ -590,10 +602,10 @@ export default function AppTopBar({
                 {/* User details */}
                 <div className="px-3.5 py-2 border-b border-[rgba(169,191,165,0.15)]">
                   <p className="text-[#E8E9D8] font-semibold text-xs">
-                    {currentUser?.workspace || currentUser?.name || 'Acme Studio'}
+                    {currentUser?.workspace || currentUser?.name || 'Workspace'}
                   </p>
                   <p className="text-[11px] text-[#A9BFA5]/70 truncate">
-                    {currentUser?.email || 'you@acme.com'} · {currentUser?.role || 'Owner'}
+                    {currentUser?.email || ''} · {currentUser?.role || 'Owner'}
                   </p>
                 </div>
 

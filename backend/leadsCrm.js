@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
+const workspaceContext = require('./workspaceContext');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const STORE_PATH = path.join(DATA_DIR, 'leads-crm.json');
@@ -11,9 +12,10 @@ const STORE_PATH = path.join(DATA_DIR, 'leads-crm.json');
 const LeadSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, unique: true, index: true },
+    workspaceId: { type: String, default: 'default', index: true },
     channel: {
       type: String,
-      enum: ['web', 'instagram', 'whatsapp', 'facebook', 'email', 'google_ads', 'manual'],
+      enum: ['web', 'instagram', 'whatsapp', 'facebook', 'x', 'linkedin', 'email', 'google_ads', 'manual'],
       default: 'manual',
     },
     attribution: { type: mongoose.Schema.Types.Mixed, default: {} },
@@ -75,6 +77,7 @@ const LeadMessageSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, unique: true },
     leadId: { type: String, required: true, index: true },
+    workspaceId: { type: String, default: 'default' },
     role: { type: String, enum: ['customer', 'agent', 'human'], required: true },
     text: { type: String, required: true },
     channelMessageId: String,
@@ -174,6 +177,8 @@ function mergeAttribution(existing, incoming) {
 
 async function notifySheetsLead(client, isNew) {
   if (!isNew || !client?.id) return;
+  // The Google Sheet is configured globally (env), so only the default workspace may write to it.
+  if (workspaceContext.current() !== workspaceContext.DEFAULT_WORKSPACE) return;
   try {
     const sheets = require('./googleSheets');
     if (sheets.isConfigured()) {
@@ -198,14 +203,14 @@ function toClientMessage(doc) {
 
 async function listLeads({ temperature, status, channel, limit = 100 } = {}) {
   if (mongoReady()) {
-    const q = {};
+    const q = { ...workspaceContext.mongoFilter() };
     if (temperature) q.temperature = temperature;
     if (status) q.status = status;
     if (channel) q.channel = channel;
     const rows = await Lead.find(q).sort({ lastMessageAt: -1 }).limit(limit);
     return rows.map(toClientLead);
   }
-  let { leads } = readFile();
+  let leads = readFile().leads.filter((l) => workspaceContext.owns(l));
   if (temperature) leads = leads.filter((l) => l.temperature === temperature);
   if (status) leads = leads.filter((l) => l.status === status);
   if (channel) leads = leads.filter((l) => l.channel === channel);
@@ -217,14 +222,15 @@ async function listLeads({ temperature, status, channel, limit = 100 } = {}) {
 
 async function getLead(id) {
   if (mongoReady()) {
-    const row = await Lead.findOne({ id });
+    const row = await Lead.findOne({ id, ...workspaceContext.mongoFilter() });
     return toClientLead(row);
   }
   const { leads } = readFile();
-  return toClientLead(leads.find((l) => l.id === id));
+  return toClientLead(leads.find((l) => l.id === id && workspaceContext.owns(l)));
 }
 
 async function getMessages(leadId) {
+  if (!(await getLead(leadId))) return [];
   if (mongoReady()) {
     const rows = await LeadMessage.find({ leadId }).sort({ createdAt: 1 });
     return rows.map(toClientMessage);
@@ -242,16 +248,22 @@ async function upsertLead(payload) {
 
   if (mongoReady()) {
     let existing = null;
+    const wsq = workspaceContext.mongoFilter();
     if (payload.externalId) {
       existing = await Lead.findOne({
         externalId: payload.externalId,
         channel: payload.channel || 'manual',
+        ...wsq,
       });
     }
-    if (!existing && payload.id) existing = await Lead.findOne({ id: payload.id });
+    if (!existing && payload.id) {
+      existing = await Lead.findOne({ id: payload.id, ...wsq });
+      if (!existing && (await Lead.exists({ id: payload.id }))) throw new Error('Lead not found');
+    }
 
     const data = {
       id: existing?.id || id,
+      workspaceId: existing?.workspaceId || workspaceContext.current(),
       channel: payload.channel || existing?.channel || 'manual',
       platform: payload.platform || existing?.platform || 'Web',
       externalId: payload.externalId ?? existing?.externalId,
@@ -292,11 +304,11 @@ async function upsertLead(payload) {
     };
 
     const isNew = !existing;
-    const saved = await Lead.findOneAndUpdate({ id: data.id }, data, { upsert: true, new: true });
+    const saved = await Lead.findOneAndUpdate({ id: data.id, ...wsq }, data, { upsert: true, new: true });
     let client = toClientLead(saved);
     if (lifecycle?.onLeadUpdated) {
       try {
-        client = (await lifecycle.onLeadUpdated(exports, client, { reason: 'upsert' })) || client;
+        client = (await lifecycle.onLeadUpdated(module.exports, client, { reason: 'upsert' })) || client;
       } catch (e) {
         console.warn('[Leads] lifecycle upsert', e.message);
       }
@@ -306,17 +318,25 @@ async function upsertLead(payload) {
   }
 
   const store = readFile();
+  const ws = workspaceContext.current();
   let existing = null;
   if (payload.externalId) {
     existing = store.leads.find(
-      (l) => l.externalId === payload.externalId && l.channel === (payload.channel || 'manual')
+      (l) =>
+        l.externalId === payload.externalId &&
+        l.channel === (payload.channel || 'manual') &&
+        workspaceContext.owns(l, ws)
     );
   }
-  if (!existing && payload.id) existing = store.leads.find((l) => l.id === payload.id);
+  if (!existing && payload.id) {
+    existing = store.leads.find((l) => l.id === payload.id && workspaceContext.owns(l, ws));
+    if (!existing && store.leads.some((l) => l.id === payload.id)) throw new Error('Lead not found');
+  }
 
   const lead = {
     ...(existing || {}),
     id: existing?.id || id,
+    workspaceId: existing?.workspaceId || ws,
     channel: payload.channel || existing?.channel || 'manual',
     platform: payload.platform || existing?.platform || 'Web',
     externalId: payload.externalId ?? existing?.externalId,
@@ -357,12 +377,15 @@ async function upsertLead(payload) {
   };
 
   const isNew = !existing;
-  store.leads = [lead, ...store.leads.filter((l) => l.id !== lead.id)].slice(0, 500);
+  // Keep the newest 500 leads per workspace so one busy tenant cannot evict another tenant data.
+  const others = store.leads.filter((l) => l.id !== lead.id);
+  const mine = [lead, ...others.filter((l) => workspaceContext.owns(l, ws))].slice(0, 500);
+  store.leads = [...mine, ...others.filter((l) => !workspaceContext.owns(l, ws))];
   writeFile(store);
   let client = toClientLead(lead);
   if (lifecycle?.onLeadUpdated) {
     try {
-      client = (await lifecycle.onLeadUpdated(exports, client, { reason: 'upsert' })) || client;
+      client = (await lifecycle.onLeadUpdated(module.exports, client, { reason: 'upsert' })) || client;
     } catch (e) {
       console.warn('[Leads] lifecycle upsert', e.message);
     }
@@ -371,13 +394,22 @@ async function upsertLead(payload) {
   return client;
 }
 
-async function updateLead(id, patch) {
+/** Fields a client may never change through a patch (ownership and identity). */
+const PROTECTED_LEAD_FIELDS = ['id', '_id', 'workspaceId', 'createdAt'];
+
+async function updateLead(id, rawPatch) {
+  const patch = { ...(rawPatch || {}) };
+  for (const key of PROTECTED_LEAD_FIELDS) delete patch[key];
   if (mongoReady()) {
-    const saved = await Lead.findOneAndUpdate({ id }, { $set: patch }, { new: true });
+    const saved = await Lead.findOneAndUpdate(
+      { id, ...workspaceContext.mongoFilter() },
+      { $set: patch },
+      { new: true }
+    );
     return toClientLead(saved);
   }
   const store = readFile();
-  const idx = store.leads.findIndex((l) => l.id === id);
+  const idx = store.leads.findIndex((l) => l.id === id && workspaceContext.owns(l));
   if (idx < 0) return null;
   store.leads[idx] = { ...store.leads[idx], ...patch };
   writeFile(store);
@@ -385,9 +417,12 @@ async function updateLead(id, patch) {
 }
 
 async function addMessage({ leadId, role, text, channelMessageId }) {
+  const ws = workspaceContext.current();
+  if (!(await getLead(leadId))) throw new Error('Lead not found');
   const msg = {
     id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     leadId,
+    workspaceId: ws,
     role,
     text,
     channelMessageId,
@@ -396,16 +431,29 @@ async function addMessage({ leadId, role, text, channelMessageId }) {
 
   if (mongoReady()) {
     await LeadMessage.create({ ...msg, createdAt: new Date(msg.createdAt) });
-    await Lead.findOneAndUpdate({ id: leadId }, { lastMessageAt: new Date() });
+    await Lead.findOneAndUpdate({ id: leadId, ...workspaceContext.mongoFilter(ws) }, { lastMessageAt: new Date() });
     return toClientMessage(msg);
   }
 
   const store = readFile();
-  store.messages = [...(store.messages || []), msg].slice(-5000);
-  const lead = store.leads.find((l) => l.id === leadId);
+  const allMsgs = [...(store.messages || []), msg];
+  const mineMsgs = allMsgs.filter((m) => workspaceContext.owns(m, ws)).slice(-5000);
+  store.messages = [...allMsgs.filter((m) => !workspaceContext.owns(m, ws)), ...mineMsgs];
+  const lead = store.leads.find((l) => l.id === leadId && workspaceContext.owns(l, ws));
   if (lead) lead.lastMessageAt = msg.createdAt;
   writeFile(store);
   return toClientMessage(msg);
+}
+
+/** Workspace ids that own at least one lead (always includes the default workspace). */
+async function listWorkspaceIds() {
+  const ids = new Set([workspaceContext.DEFAULT_WORKSPACE]);
+  if (mongoReady()) {
+    for (const id of await Lead.distinct('workspaceId')) if (id) ids.add(id);
+  } else {
+    for (const l of readFile().leads) ids.add(l.workspaceId || workspaceContext.DEFAULT_WORKSPACE);
+  }
+  return [...ids];
 }
 
 async function getCounts() {
@@ -428,13 +476,21 @@ function buildHandoffPackage(lead, messages) {
     .join('\n');
 
   let brand = 'Tecavy';
+  let profileEmail = '';
   try {
     const ck = require('./companyKnowledge');
-    brand = ck.getProfile().companyName || brand;
+    const profile = ck.getProfile();
+    brand = profile.companyName || brand;
+    profileEmail = profile.handoffEmail || '';
   } catch {
     /* ignore */
   }
-  const email = lead.handoffEmail || process.env.LEAD_HANDOFF_EMAIL || 'specialists@tecavy.example';
+  // The platform-wide env inbox only belongs to the default workspace; other tenants must set their own.
+  const envEmail =
+    workspaceContext.current() === workspaceContext.DEFAULT_WORKSPACE
+      ? process.env.LEAD_HANDOFF_EMAIL || 'specialists@tecavy.example'
+      : '';
+  const email = lead.handoffEmail || profileEmail || envEmail;
   const subject = `${brand} lead handoff — ${lead.temperature?.toUpperCase() || 'LEAD'} · ${lead.author || lead.platform}`;
   const waLink = lead.phone
     ? `https://wa.me/${String(lead.phone).replace(/\D/g, '')}`
@@ -476,6 +532,9 @@ async function sendChannelReply(lead, text, { asHuman = true } = {}) {
     channelResult = await replyDeps.whatsapp.sendWhatsAppText(lead.phone, text);
   } else if (lead.channel === 'instagram' && lead.igScopedId && replyDeps.instagram) {
     channelResult = await replyDeps.instagram.sendInstagramDm(lead.igScopedId, text);
+  } else if (lead.channel === 'facebook' && String(lead.externalId || '').startsWith('fbdm:') && replyDeps.facebook) {
+    // A Messenger conversation: the person's Page-scoped id is kept in the lead's external id.
+    channelResult = await replyDeps.facebook.sendMessengerMessage(String(lead.externalId).slice('fbdm:'.length), text);
   } else if (lead.channel === 'email' && lead.email && replyDeps.email) {
     const subject = replyDeps.email.replySubject
       ? replyDeps.email.replySubject(lead)
@@ -497,7 +556,7 @@ function mountRoutes(app, { requireAuth } = {}) {
   const guard = typeof requireAuth === 'function' ? requireAuth : (_req, _res, next) => next();
 
   if (lifecycle?.mountRoutes) {
-    lifecycle.mountRoutes(app, exports, guard);
+    lifecycle.mountRoutes(app, module.exports, guard);
   }
 
   app.get('/api/leads', guard, async (req, res) => {
@@ -669,12 +728,13 @@ function mountRoutes(app, { requireAuth } = {}) {
   });
 }
 
-const replyDeps = { whatsapp: null, instagram: null, email: null };
+const replyDeps = { whatsapp: null, instagram: null, email: null, facebook: null };
 
 function setReplyDeps(deps) {
   if (deps.whatsapp) replyDeps.whatsapp = deps.whatsapp;
   if (deps.instagram) replyDeps.instagram = deps.instagram;
   if (deps.email) replyDeps.email = deps.email;
+  if (deps.facebook) replyDeps.facebook = deps.facebook;
 }
 
 module.exports = {
@@ -687,6 +747,7 @@ module.exports = {
   updateLead,
   addMessage,
   getCounts,
+  listWorkspaceIds,
   buildHandoffPackage,
   mongoReady,
   sendChannelReply,

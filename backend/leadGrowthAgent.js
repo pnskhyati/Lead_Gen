@@ -5,13 +5,13 @@
  */
 const { Type } = require('@google/genai');
 const rag = require('./rag');
+const { prepareKnowledge, noteAgentDeferral } = require('./knowledge/answerContext');
 const leadsCrm = require('./leadsCrm');
 const agentFramework = require('./agentFramework');
 const policyEngine = require('./policyEngine');
 const agentAudit = require('./agentAudit');
 
-const HANDOFF_EMAIL =
-  process.env.LEAD_HANDOFF_EMAIL || process.env.SUPPORT_EMAIL || 'specialists@tecavy.example';
+const { handoffEmail } = require('./leadAgent');
 
 const responseSchema = {
   type: Type.OBJECT,
@@ -49,29 +49,34 @@ const responseSchema = {
   ],
 };
 
-function brandBits() {
+function brandBits(ws) {
   try {
     const ck = require('./companyKnowledge');
     return {
-      botName: ck.getBotName() || 'Ava',
-      companyName: ck.getProfile().companyName || 'Tecavy',
-      voice: ck.buildVoiceInstruction() || '',
+      botName: ck.getBotName(ws) || 'Ava',
+      companyName: ck.getProfile(ws).companyName || 'Tecavy',
+      voice: ck.buildVoiceInstruction({}, ws) || '',
     };
   } catch {
     return { botName: 'Ava', companyName: 'Tecavy', voice: '' };
   }
 }
 
-async function chat(vertex, { message, history = [], visitorName, channel = 'web' } = {}) {
+async function chat(vertex, { message, history = [], visitorName, channel = 'web', workspaceId } = {}) {
   const runId = policyEngine.newRunId();
   const rawMessage = String(message || '').trim();
   if (!rawMessage) throw new Error('message is required');
 
   const input = policyEngine.inputGuardrail(rawMessage);
   const userMessage = input.sanitized;
-  const chunks = rag.retrieveWithFallback(userMessage, { topK: 5 });
-  const context = rag.formatContext(chunks);
-  const brand = brandBits();
+  const knowledge = await prepareKnowledge(userMessage, {
+    workspaceId,
+    channel,
+    track: !input.injectionSuspected && !input.optOut,
+  });
+  const { chunks } = knowledge;
+  const context = `${knowledge.context}\n\n${knowledge.notes.join('\n')}`;
+  const brand = brandBits(workspaceId);
 
   const historyBlock = (history || [])
     .slice(-10)
@@ -108,7 +113,7 @@ Prospect: ${userMessage}
 
 Respond as ${brand.botName}. Maximize lead progress this turn.`;
 
-  const decided = await vertex.generateJson(prompt, responseSchema, systemInstruction);
+  const decided = await vertex.generateJson(prompt, responseSchema, systemInstruction, { thinkingLevel: 'LOW' });
   const signals = agentFramework.detectSignals(userMessage);
   const ruleScore = agentFramework.calculateRuleScore({ signals });
   const llmScore = Number.isFinite(Number(decided.leadScore))
@@ -133,6 +138,14 @@ Respond as ${brand.botName}. Maximize lead progress this turn.`;
     agentFramework.HANDOFF_INTENTS?.has?.(String(decided.intent || '')) ||
     /\b(complaint|refund|lawyer|speak to (a )?human|talk to (a )?person)\b/i.test(userMessage);
 
+  noteAgentDeferral(userMessage, {
+    knowledge,
+    decided: { needsHandoff: Boolean(decided.needsHandoff), intent: decided.intent },
+    workspaceId,
+    channel,
+    track: !input.injectionSuspected && !input.optOut,
+  });
+
   const result = {
     reply: String(decided.reply || '').trim() || `Happy to help — what's the main thing you need from ${brand.companyName}?`,
     intent: decided.intent || 'LEAD_INTEREST',
@@ -148,7 +161,7 @@ Respond as ${brand.botName}. Maximize lead progress this turn.`;
     ctaUsed: decided.ctaUsed || '',
     needsHandoff: Boolean(needsHandoff),
     handoffReason: decided.handoffReason || '',
-    handoffEmail: HANDOFF_EMAIL,
+    handoffEmail: handoffEmail(),
     conversationState: needsHandoff ? 'HUMAN_REQUIRED' : 'AI_ACTIVE',
     agent: 'lead_growth',
     runId,
@@ -182,7 +195,7 @@ function mountRoutes(app, { vertex, requireAuth, aiLimiter } = {}) {
       agent: 'lead_growth',
       botName: brand.botName,
       company: brand.companyName,
-      handoffEmail: HANDOFF_EMAIL,
+      handoffEmail: handoffEmail(),
     });
   });
 
@@ -193,6 +206,7 @@ function mountRoutes(app, { vertex, requireAuth, aiLimiter } = {}) {
         history: req.body?.history || [],
         visitorName: req.body?.visitorName,
         channel: req.body?.channel || 'web',
+        workspaceId: req.appUser?.workspaceId,
       });
 
       if (data.captureLead || data.needsHandoff || req.body?.persist) {

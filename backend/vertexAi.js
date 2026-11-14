@@ -117,9 +117,14 @@ function extractImageDataUrl(response) {
   return null;
 }
 
-async function generateText(prompt, { systemInstruction, responseSchema, tools } = {}) {
+/**
+ * thinkingLevel (MINIMAL | LOW | MEDIUM | HIGH) trades reasoning depth for latency. Classification-style calls
+ * (is this answerable, group these questions) are ~1.5 s with MINIMAL versus 2-3 s (and occasional 6 s+) by default.
+ */
+async function generateText(prompt, { systemInstruction, responseSchema, tools, thinkingLevel } = {}) {
   const ai = getClient();
   const config = {};
+  if (thinkingLevel) config.thinkingConfig = { thinkingLevel };
   if (systemInstruction) config.systemInstruction = systemInstruction;
   if (responseSchema) {
     config.responseMimeType = 'application/json';
@@ -133,6 +138,48 @@ async function generateText(prompt, { systemInstruction, responseSchema, tools }
     config,
   });
   return { response, text: extractText(response) };
+}
+
+/**
+ * OCR: transcribe the text in a scanned PDF or an image using the multimodal model.
+ * @param {{ buffer: Buffer, mimeType: string }} doc  application/pdf, image/png, image/jpeg or image/webp
+ */
+const OCR_TIMEOUT_MS = Number(process.env.OCR_TIMEOUT_MS || 60_000);
+
+async function ocrDocument({ buffer, mimeType }) {
+  const ai = getClient();
+  const response = await ai.models.generateContent({
+    model: resolveTextModel(),
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType, data: Buffer.from(buffer).toString('base64') } },
+          {
+            text:
+              'Transcribe ALL text in this document exactly as written, in reading order. Keep headings on their own lines, ' +
+              'render tables as plain rows with columns separated by " | ", and keep prices, phone numbers and dates exactly. ' +
+              'Do not summarize, translate, explain or add anything. If there is no readable text, reply with exactly: NO_TEXT',
+          },
+        ],
+      },
+    ],
+    // A stuck model call must not hang an upload request.
+    config: { temperature: 0, httpOptions: { timeout: OCR_TIMEOUT_MS } },
+  });
+  const text = extractText(response).trim();
+  return text === 'NO_TEXT' ? '' : text;
+}
+
+/** Ask the multimodal model about images and get JSON back. images: [{ mimeType, data(base64) }] */
+async function describeImagesJson({ images, prompt, schema }) {
+  const ai = getClient();
+  const response = await ai.models.generateContent({
+    model: resolveTextModel(),
+    contents: [{ role: 'user', parts: [...images.map((i) => ({ inlineData: { mimeType: i.mimeType, data: i.data } })), { text: prompt }] }],
+    config: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: schema, httpOptions: { timeout: 90_000 } },
+  });
+  return parseModelJson(extractText(response));
 }
 
 function stripJsonText(raw) {
@@ -152,37 +199,59 @@ function parseModelJson(raw) {
   }
 }
 
-async function generateJson(prompt, responseSchema, systemInstruction) {
-  const { text } = await generateText(prompt, { responseSchema, systemInstruction });
+async function generateJson(prompt, responseSchema, systemInstruction, { thinkingLevel } = {}) {
+  const { text } = await generateText(prompt, { responseSchema, systemInstruction, thinkingLevel });
   return parseModelJson(text);
 }
 
-async function generateImage(prompt) {
+/**
+ * @param {string} prompt
+ * @param {{ text: string, refs: { mimeType: string, data: string }[] } | null} [style] the brand's look, from their own past posts
+ */
+async function generateImage(prompt, style = null, { aspectRatio } = {}) {
   const ai = getClient();
-  const fullPrompt = `You are generating ONE final ad hero image for a marketing campaign. Obey the scene description literally (location, objects, industry, mood, camera).
+  const styled = Boolean(style?.text);
+  const styleBlock = styled
+    ? `\nBRAND STYLE (from this business's own previous posts; follow it closely):\n${style.text}\n${
+        style.refs?.length ? 'Leave the lower third calm and uncluttered (a headline is added there later). Do not draw any logo or written text. The attached images are examples of their real posts. Match their look, colors, composition and finish, but make a NEW image for the brief. Do not copy or reuse any example.\n' : ''
+      }`
+    : '';
+  const fullPrompt = `You are generating ONE final ${styled ? 'social media post image' : 'ad hero image for a marketing campaign'}. Obey the scene description literally (location, objects, industry, mood, camera).
 
 ${prompt}
-
+${styleBlock}
 Requirements:
-- Photorealistic, campaign-ready, 16:9 composition unless the brief says otherwise.
+- ${styled ? 'Match the BRAND STYLE above for look, colors and composition; use the platform shape from the brief.' : 'Photorealistic, campaign-ready, 16:9 composition unless the brief says otherwise.'}
 - Show exactly the business context in the brief (if it says dental clinic, show a believable dental consultation space; if SaaS, show the described product scene).
 - Do not substitute a generic unrelated office or CRM dashboard unless the brief asks for that.
 - CRITICAL: Do not render any words, letters, slogans, or headline text in the image (no captions, no "PRECISION", no brand taglines). Headlines belong in the social post, not baked into the photo.
 - If a screen appears, show abstract charts/UI only — no readable logos or product names on the display.
 - No watermarks, no garbled typography, no split-screen collage.`;
   // Vertex image models require an explicit Content role (user | model).
-  const contents = [{ role: 'user', parts: [{ text: fullPrompt }] }];
+  const refParts = (style?.refs || []).map((r) => ({ inlineData: { mimeType: r.mimeType, data: r.data } }));
+  const contents = [{ role: 'user', parts: [...refParts, { text: fullPrompt }] }];
 
+  let primaryError = null;
   try {
-    const response = await ai.models.generateContent({
-      model: IMAGE_MODEL,
-      contents,
-      config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
-    });
+    const request = (extra) => ai.models.generateContent({ model: IMAGE_MODEL, contents, config: { responseModalities: [Modality.IMAGE, Modality.TEXT], ...extra } });
+    let response;
+    if (aspectRatio) {
+      // The shape matters (Instagram rejects tall images), but never lose an image over it.
+      try {
+        response = await request({ imageConfig: { aspectRatio } });
+      } catch (err) {
+        if (/429|RESOURCE_EXHAUSTED|quota/i.test(String(err.message))) throw err;
+        console.warn('[Vertex] aspect ratio not accepted, retrying without it:', err.message.slice(0, 120));
+        response = await request();
+      }
+    } else {
+      response = await request();
+    }
     const dataUrl = extractImageDataUrl(response);
     if (dataUrl) return dataUrl;
     console.warn('[Vertex] Image model returned no image parts');
   } catch (err) {
+    primaryError = err;
     console.warn('[Vertex] Image model generateContent failed, trying Imagen:', err.message);
   }
 
@@ -206,6 +275,10 @@ Requirements:
     }
   }
 
+  // A rate limit must stay recognisable (callers back off and retry); everything else is a plain failure.
+  if (primaryError && /429|RESOURCE_EXHAUSTED|quota/i.test(String(primaryError.message))) {
+    throw Object.assign(new Error(`Image generation is rate-limited right now (RESOURCE_EXHAUSTED): ${String(primaryError.message).slice(0, 160)}`), { rateLimited: true });
+  }
   throw new Error('Failed to generate image via Vertex AI');
 }
 
@@ -752,11 +825,23 @@ function formatVertexError(err) {
 /**
  * Sampled GEO citation check — same Vertex client as copilot, content ideas, lead agent.
  */
-async function runGeoCitationSample(userPrompt, { companyName = 'the business', domain = '' } = {}) {
-  const domainHint = domain ? ` Prefer citing ${domain} when relevant.` : '';
-  const system = `You are simulating an AI search assistant. Answer the user question naturally. Include source URLs when you reference facts. Company context: ${companyName}.${domainHint} Do not invent analytics or ranking guarantees.`;
-  const { text } = await generateText(String(userPrompt || '').trim(), { systemInstruction: system });
-  return text;
+/**
+ * Ask a question the way a customer would, with live Google Search, and report what the answer and its sources contain.
+ * The business is deliberately NOT mentioned in the instructions: it only shows up if the search really surfaces it.
+ */
+async function runGeoCitationSample(userPrompt) {
+  const system =
+    'You are an AI search assistant. Answer the question helpfully, the way you would for a customer choosing a provider. ' +
+    'Name specific companies where relevant and do not favour any particular one. Use Google Search for current information.';
+  const { response, text } = await generateText(String(userPrompt || '').trim(), {
+    systemInstruction: system,
+    tools: [{ googleSearch: {} }],
+  });
+  const meta = response?.candidates?.[0]?.groundingMetadata || {};
+  const sources = (meta.groundingChunks || [])
+    .map((c) => ({ title: String(c?.web?.title || ''), uri: String(c?.web?.uri || '') }))
+    .filter((s) => s.title || s.uri);
+  return { text: String(text || ''), sources, queries: meta.webSearchQueries || [], searched: sources.length > 0 || Boolean(meta.webSearchQueries?.length) };
 }
 
 function getStatus() {
@@ -778,12 +863,15 @@ function getStatus() {
 }
 
 module.exports = {
+  getClient,
+  ocrDocument,
   getStatus,
   formatVertexError,
   runGeoCitationSample,
   generateText,
   generateJson,
   generateImage,
+  describeImagesJson,
   generatePromoVideo,
   generateContentIdeas,
   generateTopicSocialPack,

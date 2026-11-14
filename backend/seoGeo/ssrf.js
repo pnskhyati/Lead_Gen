@@ -1,21 +1,32 @@
 const dns = require('dns').promises;
+const net = require('net');
 const { URL } = require('url');
 
 const BLOCKED_HOSTS = new Set(['localhost', 'metadata.google.internal']);
 
+function normalizeHost(h) {
+  return String(h || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+}
+
+/** True when `ip` is not a publicly routable address. Anything unparseable counts as unsafe. */
 function isPrivateIp(ip) {
-  if (!ip) return true;
-  const v = ip.toLowerCase();
-  if (v === '::1' || v.startsWith('fe80:') || v.startsWith('fc') || v.startsWith('fd')) return true;
-  if (v.includes(':')) return false; // IPv6 public heuristic — block only loopback/link-local above
-  const parts = v.split('.').map(Number);
-  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return true;
-  const [a, b] = parts;
-  if (a === 127 || a === 0) return true;
-  if (a === 10) return true;
+  const v = normalizeHost(ip);
+  if (!v) return true;
+  if (v.startsWith('::ffff:')) {
+    const rest = v.slice(7);
+    return rest.includes('.') ? isPrivateIp(rest) : true; // hex-form mapped IPv4: refuse
+  }
+  if (net.isIPv6(v)) {
+    return v === '::1' || v === '::' || v.startsWith('fe80:') || v.startsWith('fc') || v.startsWith('fd');
+  }
+  if (!net.isIPv4(v)) return true;
+  const [a, b] = v.split('.').map(Number);
+  if (a === 127 || a === 0 || a === 10) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
   if (a === 169 && b === 254) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT
+  if (a >= 224) return true; // multicast / reserved
   return false;
 }
 
@@ -29,11 +40,12 @@ async function assertSafeFetchUrl(rawUrl) {
   if (!['http:', 'https:'].includes(u.protocol)) {
     throw new Error('Only http/https URLs are allowed');
   }
-  const host = u.hostname.toLowerCase();
-  if (BLOCKED_HOSTS.has(host)) {
+  const host = normalizeHost(u.hostname);
+  if (BLOCKED_HOSTS.has(host) || /\.(local|localhost|internal)$/.test(host)) {
     throw new Error('Blocked host');
   }
-  if (isPrivateIp(host)) {
+  // Hostnames are vetted by the DNS lookup below; only literal IPs are checked directly.
+  if (net.isIP(host) && isPrivateIp(host)) {
     throw new Error('Blocked private address');
   }
   try {

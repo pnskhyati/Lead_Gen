@@ -1,19 +1,32 @@
 import React, { FormEvent, useCallback, useEffect, useState } from 'react';
-import { Loader2, Shield, UploadCloud, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Archive, CheckCircle2, Circle, Loader2, MessageCircleQuestion, Plus, Search, Shield, Trash2, UploadCloud, RefreshCw, Undo2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import {
+  answerUnansweredQuestion,
   deleteCompanyDocument,
+  dismissUnansweredQuestion,
+  getKnowledgeConflicts,
+  getUnansweredQuestions,
+  refreshWebsite,
+  resolveKnowledgeConflict,
+  setCompanyDocumentStatus,
+  type KnowledgeConflict,
+  type UnansweredQuestion,
   deriveCompanyVoice,
   getAgentAudit,
   getCompanyProfile,
   getCompanyStatus,
+  getKnowledgeHealth,
   listCompanyDocuments,
-  readFileAsText,
   saveCompanyProfile,
+  searchKnowledge,
   uploadCompanyDocument,
+  uploadCompanyFiles,
   type CompanyDocumentMeta,
   type CompanyProfile,
   type CompanyStatus,
+  type KnowledgeHealth,
+  type KnowledgeSearchResult,
 } from '../../legacy/services/companyService';
 
 interface AdminViewProps {
@@ -80,6 +93,16 @@ export default function AdminView({ isAdmin = false }: AdminViewProps) {
   const [vocabStr, setVocabStr] = useState('');
   const [avoidStr, setAvoidStr] = useState('');
   const [audit, setAudit] = useState<Awaited<ReturnType<typeof getAgentAudit>>>([]);
+  const [health, setHealth] = useState<KnowledgeHealth | null>(null);
+  const [testQuery, setTestQuery] = useState('');
+  const [testResult, setTestResult] = useState<KnowledgeSearchResult | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [gaps, setGaps] = useState<UnansweredQuestion[]>([]);
+  const [conflicts, setConflicts] = useState<KnowledgeConflict[]>([]);
+  const [answering, setAnswering] = useState<string | null>(null);
+  const [answerText, setAnswerText] = useState('');
+  const [versionNotice, setVersionNotice] = useState<{ newId: string; newTitle: string; oldId: string; oldTitle: string } | null>(null);
+  const [refreshing, setRefreshing] = useState<string | null>(null);
 
   const inputClass = isLight
     ? 'mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/25 disabled:opacity-60'
@@ -100,12 +123,18 @@ export default function AdminView({ isAdmin = false }: AdminViewProps) {
   const title = isLight ? 'text-slate-900' : 'text-white';
 
   const refresh = useCallback(async () => {
-    const [s, p, d, a] = await Promise.all([
+    const [s, p, d, a, h, g, c] = await Promise.all([
       getCompanyStatus(),
       getCompanyProfile(),
       listCompanyDocuments(),
       getAgentAudit(25).catch(() => []),
+      getKnowledgeHealth().catch(() => null),
+      getUnansweredQuestions().catch(() => null),
+      getKnowledgeConflicts().catch(() => []),
     ]);
+    setGaps(g?.open ?? []);
+    setConflicts(c);
+    setHealth(h);
     setStatus(s);
     setProfile({ ...emptyProfile, ...p });
     setVocabStr((p.vocabulary || []).join(', '));
@@ -131,19 +160,20 @@ export default function AdminView({ isAdmin = false }: AdminViewProps) {
     setBusy(true);
     setError(null);
     try {
-      let count = 0;
-      for (const file of Array.from(files)) {
-        const text = await readFileAsText(file);
-        await uploadCompanyDocument({
-          title: file.name.replace(/\.[^.]+$/, ''),
-          fileName: file.name,
-          mimeType: file.type,
-          text,
-        });
-        count += 1;
+      const results = await uploadCompanyFiles(Array.from(files));
+      const ok = results.filter((r) => r.ok);
+      const failed = results.filter((r) => !r.ok);
+      const versioned = ok.find((r) => r.document?.similarTo?.length);
+      if (versioned?.document?.similarTo?.length) {
+        const old = versioned.document.similarTo[0];
+        setVersionNotice({ newId: versioned.document.id, newTitle: versioned.fileName, oldId: old.id, oldTitle: old.title });
       }
       await refresh();
-      flash(`Uploaded ${count} document${count === 1 ? '' : 's'}.`);
+      if (failed.length) {
+        setError(`${failed.map((f) => `${f.fileName}: ${f.error}`).join(' · ')}${ok.length ? ` (${ok.length} uploaded)` : ''}`);
+      } else {
+        flash(`Uploaded ${ok.length} document${ok.length === 1 ? '' : 's'}.`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
@@ -173,6 +203,109 @@ export default function AdminView({ isAdmin = false }: AdminViewProps) {
       setBusy(false);
     }
   };
+
+  const onTestQuestion = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!testQuery.trim()) return;
+    setTesting(true);
+    setError(null);
+    try {
+      setTestResult(await searchKnowledge(testQuery.trim()));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Search failed');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const updateFaq = (index: number, field: 'question' | 'answer', value: string) =>
+    setProfile((p) => ({
+      ...p,
+      faqs: (p.faqs || []).map((f, i) => (i === index ? { ...f, [field]: value } : f)),
+    }));
+
+  const onAnswerGap = async (gap: UnansweredQuestion) => {
+    if (!answerText.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await answerUnansweredQuestion(gap.id, { answer: answerText.trim() });
+      setAnswering(null);
+      setAnswerText('');
+      await refresh();
+      flash(r.nowCovered ? 'Saved as an FAQ — your assistant can now answer this.' : 'Saved as an FAQ. It may take a moment to be matched.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the answer');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDismissGap = async (id: string) => {
+    setBusy(true);
+    try {
+      await dismissUnansweredQuestion(id);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not dismiss');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onResolveConflict = async (id: string, keep: 'a' | 'b' | 'both') => {
+    setBusy(true);
+    setError(null);
+    try {
+      await resolveKnowledgeConflict(id, keep);
+      await refresh();
+      flash(keep === 'both' ? 'Marked as both valid.' : 'Done — the other statement is no longer used.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not resolve');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onToggleArchive = async (id: string, archive: boolean) => {
+    setBusy(true);
+    try {
+      await setCompanyDocumentStatus(id, archive ? 'archived' : 'active');
+      setVersionNotice(null);
+      await refresh();
+      flash(archive ? 'Document archived — the assistant no longer uses it.' : 'Document restored.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update the document');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onRefreshWebsite = async () => {
+    setRefreshing('Starting…');
+    setError(null);
+    try {
+      const r = await refreshWebsite((stage, detail) =>
+        setRefreshing(stage === 'reading' && detail?.pages ? `Reading ${detail.pages} pages…` : stage === 'fetching' ? 'Opening your website…' : 'Working…')
+      );
+      await refresh();
+      flash(r.unchanged ? 'Website re-read — nothing has changed.' : `Website refreshed (${r.sources.pages.length} pages).`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not refresh the website');
+    } finally {
+      setRefreshing(null);
+    }
+  };
+
+  const QUALITY_LABEL: Record<string, string> = {
+    very_short: 'Very short',
+    boilerplate_heavy: 'Mostly menus / legal text',
+    stale: 'Over 30 days old',
+    few_pages: 'Few pages read',
+    scanned_ocr: 'Read by OCR — check accuracy',
+    archived: 'Archived',
+  };
+  const WARN_FLAGS = new Set(['very_short', 'boilerplate_heavy', 'stale', 'few_pages']);
 
   const onDelete = async (id: string) => {
     if (!isAdmin || !confirm('Remove this document from company knowledge?')) return;
@@ -284,13 +417,201 @@ export default function AdminView({ isAdmin = false }: AdminViewProps) {
         </div>
       )}
 
+      {conflicts.length > 0 && (
+        <div id="admin-conflicts" className={`${card} p-4 sm:p-5 space-y-3 border-amber-500/40`}>
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-500 shrink-0" />
+            <div>
+              <h2 className={`text-base font-bold ${title}`}>Conflicting information ({conflicts.length})</h2>
+              <p className={`text-xs mt-0.5 ${muted}`}>Two of your sources disagree. Until you choose, the assistant will not quote either one — it will say it will confirm with your team.</p>
+            </div>
+          </div>
+          <ul className="space-y-3">
+            {conflicts.map((c) => {
+              const newer = c.a.uploadedAt && c.b.uploadedAt ? (new Date(c.a.uploadedAt) > new Date(c.b.uploadedAt) ? 'a' : 'b') : null;
+              return (
+                <li key={c.id} className={`rounded-lg p-3 space-y-2 ${isLight ? 'bg-slate-50' : 'bg-[#061816]'}`}>
+                  <p className={`text-sm font-bold ${title}`}>{c.topic}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {(['a', 'b'] as const).map((side) => (
+                      <div key={side} className={`rounded-md p-2.5 text-[11px] space-y-1 ${isLight ? 'bg-white border border-slate-200' : 'bg-[#071C1A] border border-[rgba(169,191,165,0.18)]'}`}>
+                        <p className={`font-semibold ${title}`}>
+                          {c[side].title}
+                          {newer === side && <span className="ml-1.5 text-[10px] font-bold text-emerald-500">NEWER</span>}
+                        </p>
+                        <p className={muted}>{side === 'a' ? c.statementA : c.statementB}</p>
+                        <p className={`italic line-clamp-3 ${muted}`}>“{c[side].excerpt}”</p>
+                        {isAdmin && (
+                          <button type="button" disabled={busy} onClick={() => void onResolveConflict(c.id, side)} className={`mt-1 px-2.5 py-1 rounded-md text-[11px] font-semibold disabled:opacity-45 ${btnSecondary}`}>
+                            This one is correct
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {isAdmin && (
+                    <button type="button" disabled={busy} onClick={() => void onResolveConflict(c.id, 'both')} className={`text-[11px] font-semibold underline ${muted}`}>
+                      Both are correct (different branches, plans, etc.)
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      <div id="admin-gaps" className={`${card} p-4 sm:p-5 space-y-3`}>
+        <div className="flex items-start gap-2">
+          <MessageCircleQuestion className={`w-4 h-4 mt-0.5 shrink-0 ${isLight ? 'text-teal-600' : 'text-teal-400'}`} />
+          <div>
+            <h2 className={`text-base font-bold ${title}`}>Unanswered customer questions</h2>
+            <p className={`text-xs mt-0.5 ${muted}`}>Questions customers asked that your knowledge could not answer, grouped and sorted by how often they came up. Answer one and it becomes an FAQ immediately.</p>
+          </div>
+        </div>
+        {gaps.length === 0 ? (
+          <p className={`text-sm py-3 ${muted}`}>Nothing unanswered. As customers chat, the questions your assistant could not answer will appear here.</p>
+        ) : (
+          <ul className="space-y-2 max-h-[28rem] overflow-y-auto">
+            {gaps.map((g) => (
+              <li key={g.id} className={`rounded-lg p-3 space-y-2 ${isLight ? 'bg-slate-50' : 'bg-[#061816]'}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className={`text-sm font-semibold ${title}`}>
+                      {g.kind === 'conflict' && <span className="mr-1.5 text-[10px] font-bold text-amber-500">CONFLICT</span>}
+                      “{g.question}”
+                    </p>
+                    <p className={`text-[11px] mt-0.5 ${muted}`}>
+                      Asked {g.count} time{g.count === 1 ? '' : 's'} · {Object.entries(g.channels).map(([ch, n]) => `${ch} ${n}`).join(', ')} · last {new Date(g.lastSeen).toLocaleDateString()}
+                    </p>
+                    {g.variants.length > 0 && <p className={`text-[11px] mt-0.5 italic truncate ${muted}`}>Also: {g.variants.slice(0, 2).join(' · ')}</p>}
+                    {g.detail && <p className={`text-[11px] mt-0.5 ${muted}`}>{g.detail}</p>}
+                  </div>
+                  {isAdmin && answering !== g.id && g.kind === 'missing' && (
+                    <div className="flex gap-2 shrink-0">
+                      <button type="button" onClick={() => { setAnswering(g.id); setAnswerText(''); }} className={`px-2.5 py-1 rounded-md text-[11px] font-semibold ${btnSecondary}`}>Add answer</button>
+                      <button type="button" disabled={busy} onClick={() => void onDismissGap(g.id)} className={`px-2.5 py-1 rounded-md text-[11px] font-semibold ${btnGhost}`}>Dismiss</button>
+                    </div>
+                  )}
+                  {isAdmin && g.kind === 'conflict' && (
+                    <a href="#admin-conflicts" className="text-[11px] font-bold text-teal-500 hover:underline shrink-0">Resolve above</a>
+                  )}
+                </div>
+                {answering === g.id && (
+                  <div className="space-y-2">
+                    <textarea autoFocus value={answerText} onChange={(e) => setAnswerText(e.target.value)} rows={3} placeholder="Write the answer exactly as customers should hear it (prices, hours and policies must be accurate)…" className={`${inputClass} resize-y`} />
+                    <div className="flex gap-2">
+                      <button type="button" disabled={busy || !answerText.trim()} onClick={() => void onAnswerGap(g)} className={`px-3 py-1.5 rounded-md text-[11px] font-semibold disabled:opacity-45 ${btnPrimary}`}>Save as FAQ</button>
+                      <button type="button" onClick={() => setAnswering(null)} className={`px-3 py-1.5 rounded-md text-[11px] font-semibold ${btnGhost}`}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        {/* Knowledge health */}
+        <div className={`${card} p-4 sm:p-5 space-y-3`}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className={`text-base font-bold ${title}`}>Knowledge health</h2>
+              <p className={`text-xs mt-0.5 ${muted}`}>What your assistant can and cannot answer today.</p>
+            </div>
+            {health && (
+              <span className={`text-2xl font-bold tabular-nums ${health.score >= 80 ? 'text-emerald-500' : health.score >= 50 ? 'text-amber-500' : 'text-rose-500'}`}>
+                {health.score}%
+              </span>
+            )}
+          </div>
+          {health ? (
+            <>
+              <ul className="space-y-1.5">
+                {health.checks.map((c) => (
+                  <li key={c.key} className="flex items-start gap-2 text-xs">
+                    {c.ok ? <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 text-emerald-500 shrink-0" /> : <Circle className="w-3.5 h-3.5 mt-0.5 text-amber-500 shrink-0" />}
+                    <span className={c.ok ? title : muted}>
+                      <span className="font-semibold">{c.label}</span>
+                      {!c.ok && <span className={`block text-[11px] ${muted}`}>{c.hint}</span>}
+                      {!c.ok && c.action === 'refresh_website' && isAdmin && (
+                        <button type="button" disabled={Boolean(refreshing)} onClick={() => void onRefreshWebsite()} className="mt-1 text-[11px] font-bold text-teal-500 hover:underline disabled:opacity-50">
+                          {refreshing || 'Refresh website now'}
+                        </button>
+                      )}
+                      {!c.ok && c.action && c.action !== 'refresh_website' && (
+                        <a href={`#admin-${c.action}`} className="mt-1 inline-block text-[11px] font-bold text-teal-500 hover:underline">
+                          {c.action === 'gaps' ? 'See the questions' : 'Resolve now'}
+                        </a>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className={`text-[11px] ${muted}`}>
+                {health.stats.chunks} searchable passages · {health.stats.semanticSearch ? 'meaning-based search on' : health.stats.indexing ? 'building meaning-based search…' : 'keyword search only'}
+              </p>
+            </>
+          ) : (
+            <p className={`text-sm py-4 ${muted}`}>Health report unavailable.</p>
+          )}
+        </div>
+
+        {/* Test a question */}
+        <div className={`${card} p-4 sm:p-5 space-y-3`}>
+          <div>
+            <h2 className={`text-base font-bold ${title}`}>Test a customer question</h2>
+            <p className={`text-xs mt-0.5 ${muted}`}>See what your assistant would find — and whether it would have to hand off.</p>
+          </div>
+          <form onSubmit={onTestQuestion} className="flex gap-2">
+            <input value={testQuery} onChange={(e) => setTestQuery(e.target.value)} placeholder="e.g. How much does teeth whitening cost?" className={inputClass} />
+            <button type="submit" disabled={testing || !testQuery.trim()} className={`px-3 py-2 text-xs font-semibold rounded-lg disabled:opacity-45 flex items-center gap-1.5 ${btnPrimary}`}>
+              {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+              Test
+            </button>
+          </form>
+          {testResult && (
+            <div className="space-y-2">
+              <p className={`text-xs font-semibold ${testResult.grounded ? 'text-emerald-500' : 'text-amber-500'}`}>
+                {testResult.grounded
+                  ? `Covered (${testResult.confidence} confidence) — the assistant can answer this.`
+                  : 'Not covered — the assistant would say it will check with your team and hand off.'}
+              </p>
+              <ul className="space-y-1.5 max-h-56 overflow-y-auto">
+                {testResult.grounded && testResult.sources.map((src) => (
+                  <li key={src.id} className={`rounded-lg px-3 py-2 text-[11px] ${isLight ? 'bg-slate-50' : 'bg-[#061816]'}`}>
+                    <p className={`font-semibold ${title}`}>{src.title}</p>
+                    <p className={`mt-0.5 line-clamp-3 ${muted}`}>{src.excerpt}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
         {/* Documents */}
         <div className={`${card} p-4 sm:p-5 space-y-4`}>
           <div>
             <h2 className={`text-base font-bold ${title}`}>Company documents</h2>
-            <p className={`text-xs mt-0.5 ${muted}`}>Brand books, FAQs, product sheets · .txt .md .csv .json .html</p>
+            <p className={`text-xs mt-0.5 ${muted}`}>Brand books, price lists, FAQs · PDF, DOCX, TXT, MD, CSV, JSON, HTML, or photos of scanned pages</p>
+            {isAdmin && profile.websiteUrl && (
+              <button type="button" disabled={Boolean(refreshing)} onClick={() => void onRefreshWebsite()} className={`mt-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-60 ${btnSecondary}`}>
+                {refreshing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                {refreshing || 'Re-read my website now'}
+              </button>
+            )}
           </div>
+
+          {versionNotice && isAdmin && (
+            <div className={`rounded-lg border px-3 py-2.5 text-xs space-y-2 ${isLight ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-amber-950/30 border-amber-800/40 text-amber-100'}`}>
+              <p><span className="font-semibold">{versionNotice.newTitle}</span> looks like an updated version of <span className="font-semibold">{versionNotice.oldTitle}</span>. Keeping both can make the assistant quote old prices.</p>
+              <div className="flex gap-2">
+                <button type="button" disabled={busy} onClick={() => void onToggleArchive(versionNotice.oldId, true)} className={`px-2.5 py-1 rounded-md text-[11px] font-semibold ${btnPrimary}`}>Archive the old one</button>
+                <button type="button" onClick={() => setVersionNotice(null)} className={`px-2.5 py-1 rounded-md text-[11px] font-semibold ${btnGhost}`}>Keep both</button>
+              </div>
+            </div>
+          )}
 
           {isAdmin && (
             <>
@@ -301,7 +622,7 @@ export default function AdminView({ isAdmin = false }: AdminViewProps) {
                   type="file"
                   className="hidden"
                   multiple
-                  accept=".txt,.md,.csv,.json,.html,text/plain,text/markdown,application/json"
+                  accept=".pdf,.docx,.txt,.md,.csv,.json,.html,.png,.jpg,.jpeg,.webp"
                   disabled={busy}
                   onChange={(e) => {
                     void onUploadFiles(e.target.files);
@@ -310,7 +631,7 @@ export default function AdminView({ isAdmin = false }: AdminViewProps) {
                 />
                 <UploadCloud className={`w-5 h-5 ${isLight ? 'text-teal-600' : 'text-teal-400'}`} />
                 <span className={`text-sm font-semibold ${title}`}>{busy ? 'Uploading…' : 'Drop or click to upload'}</span>
-                <span className={`text-[11px] ${muted}`}>Chunked into searchable knowledge</span>
+                <span className={`text-[11px] ${muted}`}>Scanned PDFs and images are read with OCR · up to 10MB each</span>
               </label>
 
               <form onSubmit={onPasteUpload} className="space-y-3">
@@ -332,16 +653,30 @@ export default function AdminView({ isAdmin = false }: AdminViewProps) {
                 <li key={d.id} className={`flex items-start justify-between gap-3 rounded-lg px-3.5 py-3 ${
                   isLight ? 'bg-slate-50' : 'bg-[#061816]'
                 }`}>
-                  <div className="min-w-0">
+                  <div className={`min-w-0 ${d.status === 'archived' ? 'opacity-60' : ''}`}>
                     <p className={`text-sm font-bold truncate ${title}`}>{d.title}</p>
                     <p className={`text-[11px] mt-0.5 ${muted}`}>
                       {d.fileName} · {d.chunkCount} chunks · {d.charCount.toLocaleString()} chars
                     </p>
+                    {(d.quality || []).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(d.quality || []).map((f) => (
+                          <span key={f} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${WARN_FLAGS.has(f) ? (isLight ? 'bg-amber-100 text-amber-800' : 'bg-amber-950/50 text-amber-200') : (isLight ? 'bg-slate-200 text-slate-600' : 'bg-[#0D2D2A] text-[#A9BFA5]')}`}>
+                            {QUALITY_LABEL[f] || f}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   {isAdmin && (
-                    <button type="button" onClick={() => void onDelete(d.id)} className="text-[11px] font-bold text-rose-500 shrink-0">
-                      Remove
-                    </button>
+                    <div className="flex gap-2 shrink-0 items-center">
+                      <button type="button" disabled={busy} title={d.status === 'archived' ? 'Use this document again' : 'Stop using this document without deleting it'} onClick={() => void onToggleArchive(d.id, d.status !== 'archived')} className="text-[11px] font-bold text-teal-500 flex items-center gap-1 disabled:opacity-50">
+                        {d.status === 'archived' ? <><Undo2 className="w-3 h-3" />Restore</> : <><Archive className="w-3 h-3" />Archive</>}
+                      </button>
+                      <button type="button" onClick={() => void onDelete(d.id)} className="text-[11px] font-bold text-rose-500">
+                        Remove
+                      </button>
+                    </div>
                   )}
                 </li>
               ))
@@ -436,6 +771,41 @@ export default function AdminView({ isAdmin = false }: AdminViewProps) {
                 placeholder="https://maps.google.com/…"
               />
             </label>
+
+            <label className={`block text-xs font-semibold ${muted}`}>
+              Send human handoffs to (email)
+              <input type="email" value={profile.handoffEmail || ''} disabled={!isAdmin} onChange={(e) => setProfile((p) => ({ ...p, handoffEmail: e.target.value }))} className={inputClass} placeholder="sales@yourbusiness.com" />
+            </label>
+
+            <label className={`block text-xs font-semibold ${muted}`}>
+              Opening hours
+              <input value={profile.businessHours || ''} disabled={!isAdmin} onChange={(e) => setProfile((p) => ({ ...p, businessHours: e.target.value }))} className={inputClass} placeholder="Mon–Sat, 9am–7pm" />
+            </label>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className={`text-xs font-semibold ${muted}`}>FAQs the assistant answers exactly</p>
+                {isAdmin && (
+                  <button type="button" onClick={() => setProfile((p) => ({ ...p, faqs: [...(p.faqs || []), { id: `faq-${Date.now()}`, question: '', answer: '' }] }))} className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 ${btnSecondary}`}>
+                    <Plus className="w-3 h-3" /> Add
+                  </button>
+                )}
+              </div>
+              {(profile.faqs || []).length === 0 && <p className={`text-[11px] ${muted}`}>No FAQs yet.</p>}
+              {(profile.faqs || []).map((faq, i) => (
+                <div key={faq.id} className={`rounded-lg p-2.5 space-y-1.5 ${isLight ? 'bg-slate-50' : 'bg-[#061816]'}`}>
+                  <div className="flex items-center gap-2">
+                    <input value={faq.question} disabled={!isAdmin} onChange={(e) => updateFaq(i, 'question', e.target.value)} className={inputClass} placeholder="Question" />
+                    {isAdmin && (
+                      <button type="button" aria-label="Remove FAQ" onClick={() => setProfile((p) => ({ ...p, faqs: (p.faqs || []).filter((_, j) => j !== i) }))} className={`p-1.5 rounded ${btnGhost}`}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <textarea value={faq.answer} disabled={!isAdmin} onChange={(e) => updateFaq(i, 'answer', e.target.value)} rows={2} className={`${inputClass} resize-y`} placeholder="Answer" />
+                </div>
+              ))}
+            </div>
 
             <label className={`block text-xs font-semibold ${muted}`}>
               Bot / agent name

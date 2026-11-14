@@ -1,4 +1,7 @@
 const express = require('express');
+const workspaceContext = require('./workspaceContext');
+const workspaceData = require('./workspaceData');
+const oauthState = require('./oauthState');
 const cors = require('cors');
 const morgan = require('morgan');
 const axios = require('axios');
@@ -25,6 +28,7 @@ if (!JWT_SECRET || JWT_SECRET === 'your-fallback-secret-key' || JWT_SECRET === '
     console.warn('[Auth] Using insecure development JWT_SECRET — set JWT_SECRET before production.');
 }
 const EFFECTIVE_JWT_SECRET = JWT_SECRET || 'nexora-dev-only-change-me';
+oauthState.init(EFFECTIVE_JWT_SECRET);
 
 // MongoDB Connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/nexora';
@@ -81,10 +85,12 @@ const PostSchema = new mongoose.Schema({
     platforms: [{ type: String, enum: ['linkedin', 'instagram', 'facebook', 'x'] }],
     platformResults: { type: mongoose.Schema.Types.Mixed, default: {} },
     error: String,
-    userUrn: String
+    userUrn: String,
+    workspaceId: { type: String, default: 'default', index: true }
 });
 
-const Account = mongoose.model('Account', AccountSchema);
+// Mongo when it is connected, a local file when it is not (so LinkedIn works without running a database).
+const Account = require('./linkedinAccounts').createAccountStore(mongoose.model('Account', AccountSchema), () => mongoose.connection.readyState === 1);
 const Post = mongoose.model('Post', PostSchema);
 
 const CLIENT_ID = process.env.LINKEDIN_CLIENT_ID;
@@ -127,7 +133,11 @@ app.use(cors({
     credentials: true
 }));
 console.log('CORS Allowed Origins:', allowedOrigins);
-app.use(express.json({ limit: IS_PROD ? '2mb' : '12mb' }));
+// Keep the raw bytes: webhook signatures (Meta X-Hub-Signature-256) are computed over them.
+app.use(express.json({
+    limit: IS_PROD ? '2mb' : '12mb',
+    verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 app.use(morgan(IS_PROD ? 'combined' : 'dev'));
 
 appAuth.mountRoutes(app, { jwtSecret: EFFECTIVE_JWT_SECRET });
@@ -161,13 +171,15 @@ const authenticateToken = (req, res, next) => {
 
 // --- LinkedIn Auth Routes ---
 
-app.get('/auth/linkedin', (req, res) => {
+app.get('/auth/linkedin', appAuth.optionalAppAuth(EFFECTIVE_JWT_SECRET), (req, res) => {
     const scope = 'w_member_social profile openid email';
-    const authUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(scope)}`;
+    let authUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(scope)}`;
+    // A signed state lets the callback link this LinkedIn account to the workspace that started the flow.
+    if (req.appUser) authUrl += `&state=${encodeURIComponent(oauthState.create({ channel: 'linkedin', appUser: req.appUser }))}`;
     res.redirect(authUrl);
 });
 
-app.get('/auth/linkedin/callback', async (req, res) => {
+app.get('/auth/linkedin/callback', appAuth.optionalAppAuth(EFFECTIVE_JWT_SECRET), async (req, res) => {
     const { code } = req.query;
     if (!code) return res.redirect('/?error=no_code');
 
@@ -209,6 +221,17 @@ app.get('/auth/linkedin/callback', async (req, res) => {
             },
             { upsert: true, new: true }
         );
+
+        // Link this LinkedIn person to the signed-in workspace so scheduled posts can be published as them.
+        // Only with a valid signed state for this user: otherwise a forged callback could point a workspace at someone else's account.
+        if (req.query.state && req.appUser) {
+            try {
+                oauthState.verify(String(req.query.state), 'linkedin', req.appUser);
+                socialConnections.linkLinkedIn(req.appUser.workspaceId, { urn: personUrn, name: profile.name });
+            } catch (linkErr) {
+                console.warn('[LinkedIn] workspace link skipped:', linkErr.message);
+            }
+        }
 
         // Deactivate others
         // (REMOVED: This was causing session leakage in multi-user environments)
@@ -295,7 +318,7 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/history', requireApp, authenticateToken, async (req, res) => {
     try {
         const urn = req.userUrn;
-        const history = await Post.find({ userUrn: urn }).sort({ scheduledAt: -1 });
+        const history = await Post.find({ userUrn: urn, ...workspaceContext.mongoFilter() }).sort({ scheduledAt: -1 });
         res.json({ history });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -309,9 +332,10 @@ app.post('/api/history/sync', requireApp, authenticateToken, async (req, res) =>
         if (!history) return res.status(400).json({ error: 'History is required' });
 
         for (const post of history) {
+            // The post belongs to the signed-in workspace; never trust a workspaceId sent by the client.
             await Post.findOneAndUpdate(
-                { id: post.id, userUrn: urn },
-                { ...post, userUrn: urn },
+                { id: post.id, userUrn: urn, ...workspaceContext.mongoFilter() },
+                { ...post, userUrn: urn, workspaceId: workspaceContext.current() },
                 { upsert: true }
             );
         }
@@ -383,7 +407,11 @@ async function performPublish(post, targetUrn) {
         mediaAsset = await uploadImageToLinkedIn(post.imageUrl, targetUrn);
     }
 
-    const shareCommentary = `${post.headline}\n\n${post.content}\n\n${post.hashtags ? post.hashtags.map(tag => `#${tag.replace(/^#/, '')}`).join(' ') : ''}`;
+    const shareCommentary = [
+        post.headline,
+        post.content,
+        post.hashtags && post.hashtags.length ? post.hashtags.map(tag => `#${tag.replace(/^#/, '')}`).join(' ') : '',
+    ].filter(Boolean).join('\n\n');
 
     const publishBody = {
         author: urn,
@@ -476,10 +504,12 @@ setInterval(async () => {
             const targets = (post.platforms && post.platforms.length) ? post.platforms : ['linkedin'];
             console.log(`[Scheduler] Publishing due post: "${post.headline}" → ${targets.join(', ')}`);
             try {
-                const result = await publishers.publishPostToPlatforms(post, {
-                    linkedinPublishFn: performPublish,
-                    userUrn: post.userUrn,
-                });
+                const result = await workspaceContext.run(post.workspaceId || 'default', () =>
+                    publishers.publishPostToPlatforms(post, {
+                        linkedinPublishFn: performPublish,
+                        userUrn: post.userUrn,
+                    })
+                );
                 post.platformResults = result.platformResults;
                 post.linkedinId = result.linkedinId || post.linkedinId;
                 post.instagramId = result.instagramId || post.instagramId;
@@ -568,6 +598,30 @@ leadsCrm.mountRoutes(app, { requireAuth: requireApp });
 const companyKnowledge = require('./companyKnowledge');
 companyKnowledge.mountRoutes(app, { requireAuth: requireApp, vertex });
 
+// --- Content planner: one prompt -> reviewed calendar -> reliable scheduled publishing ---
+const socialConnections = require('./social/connections');
+const socialScheduler = require('./social/scheduler');
+const socialRoutes = require('./social/routes');
+const linkedinAccountExists = async (urn) => Boolean(await Account.exists({ urn }));
+const socialWorker = socialScheduler.createWorker({
+    vertex,
+    publish: (platform, post, { userUrn }) => publishers.publishToPlatform(platform, post, { linkedinPublishFn: performPublish, userUrn }),
+    linkedinUrn: (ws) => socialConnections.getLinkedInLink(ws)?.urn || null,
+});
+let brandRefTurn = 0; // rotates which example posts are shown to the image model
+socialRoutes.mountRoutes(app, {
+    vertex,
+    requireAuth: requireApp,
+    requireAdmin: companyKnowledge.requireAdmin,
+    aiLimiter,
+    worker: socialWorker,
+    linkedinAccountExists,
+    // Images follow the workspace's brand style (learned from the owner's own posts) when they have set one up.
+    imageGenerator: (prompt, opts = {}) => vertex.generateImage(prompt, require('./social/brandStyle').forGeneration(opts.ws, { rotate: brandRefTurn++ }), { aspectRatio: opts.aspectRatio }),
+});
+socialWorker.start();
+require('./knowledge/scheduler').start({ vertex });
+
 const seoGeo = require('./seoGeo');
 seoGeo.mountRoutes(app, { requireAuth: requireApp, vertex });
 
@@ -590,10 +644,29 @@ facebook.mountRoutes(app, { vertex, requireAuth: requireApp });
 
 const xChannel = require('./x');
 xChannel.mountRoutes(app, { vertex, requireAuth: requireApp });
+const linkedinCm = require('./linkedinCm');
+linkedinCm.mountRoutes(app, { requireAuth: requireApp });
 
 // --- Email (SMTP inbound webhook + outbound) ---
 const emailChannel = require('./email');
 emailChannel.mountRoutes(app, { vertex, leadAgent, requireAuth: requireApp });
+// Reads new mail from each workspace's connected mailbox (IMAP) and lets the agent answer. EMAIL_POLLER=off disables it.
+emailChannel.createInboundPoller(vertex, leadAgent).start();
+
+// --- Auto-reply: Instagram comments + DMs, Facebook comments, X mentions. Checks each platform on a timer (no webhook needed). AUTO_REPLY_POLLER=off disables it. ---
+const autoReplyAdapters = require('./autoReply/adapters').createAdapters({
+    instagram,
+    facebook,
+    x: xChannel,
+    linkedin: linkedinCm,
+    liStore: require('./linkedinCmStore'),
+    igStore: require('./instagramStore'),
+    fbStore: require('./facebookStore'),
+    xStore: require('./xStore'),
+});
+const autoReplyEngine = require('./autoReply/engine').createEngine({ vertex, leadAgent, adapters: autoReplyAdapters });
+require('./autoReply/routes').mountRoutes(app, { engine: autoReplyEngine, requireAuth: requireApp, requireAdmin: companyKnowledge.requireAdmin });
+autoReplyEngine.start();
 
 // --- Google Ads lead forms, ads landing (UTM), Sheets export ---
 const googleAds = require('./googleAds');
@@ -610,14 +683,17 @@ const leadGrowthAgent = require('./leadGrowthAgent');
 competitorAgent.mountRoutes(app, { vertex, requireAuth: requireApp, aiLimiter });
 leadGrowthAgent.mountRoutes(app, { vertex, requireAuth: requireApp, aiLimiter });
 
-leadsCrm.setReplyDeps({ whatsapp, instagram, email: emailChannel });
+leadsCrm.setReplyDeps({ whatsapp, instagram, email: emailChannel, facebook });
 
 const leadLifecycle = require('./leadLifecycle');
 const LIFECYCLE_TICK_MS = Number(process.env.LEAD_LIFECYCLE_TICK_MS) || 5 * 60 * 1000;
 setInterval(async () => {
   try {
-    await leadLifecycle.scanAllLeads(leadsCrm);
-    await leadLifecycle.processDueFollowUps(leadsCrm);
+    const ids = await leadsCrm.listWorkspaceIds();
+    await workspaceData.forEachWorkspace(async () => {
+      await leadLifecycle.scanAllLeads(leadsCrm);
+      await leadLifecycle.processDueFollowUps(leadsCrm);
+    }, ids);
   } catch (err) {
     console.warn('[Lifecycle] tick', err.message);
   }

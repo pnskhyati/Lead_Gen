@@ -64,15 +64,14 @@ export async function fetchLeads(params?: {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
     const leads: Lead[] = json.data?.leads || [];
-    if (leads.length > 0 || json.success) {
-      writeRaw(leads.length ? leads : readRaw());
-      return leads.length
-        ? leads
-        : readRaw().sort(
-            (a, b) =>
-              new Date(b.lastMessageAt || b.createdAt).getTime() -
-              new Date(a.lastMessageAt || a.createdAt).getTime()
-          );
+    if (json.success) {
+      // The server is the source of truth: an empty list means no leads, not "use the old browser copy".
+      writeRaw(leads);
+      return [...leads].sort(
+        (a, b) =>
+          new Date(b.lastMessageAt || b.createdAt).getTime() -
+          new Date(a.lastMessageAt || a.createdAt).getTime()
+      );
     }
   } catch (err) {
     console.warn('[leadStore] API fetch failed, using cache', err);
@@ -169,11 +168,11 @@ export async function releaseLeadToAi(
   } catch (err) {
     console.warn('[leadStore] release API failed', err);
   }
-  return updateLead(id, {
-    autoReplyPaused: false,
-    conversationState: 'AI_ACTIVE',
-    status: 'contacted',
-  });
+  // The server could not be reached: keep the change in the local copy so the screen stays consistent.
+  const next = readRaw().map((l) => (l.id === id ? { ...l, autoReplyPaused: false, conversationState: 'AI_ACTIVE' as const, status: 'contacted' as const } : l));
+  writeRaw(next);
+  notify();
+  return next.find((l) => l.id === id);
 }
 
 export async function triggerHandoff(

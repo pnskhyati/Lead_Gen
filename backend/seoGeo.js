@@ -31,26 +31,27 @@ function mountRoutes(app, { requireAuth, vertex } = {}) {
     res.json({ success: true, data: googleIntegrations.getIntegrationStatus() });
   });
 
-  app.get('/api/seo-geo/oauth/start', guard, (_req, res) => {
+  app.get('/api/seo-geo/oauth/start', guard, (req, res) => {
     try {
-      const data = googleIntegrations.startOAuth();
+      const data = googleIntegrations.startOAuth(req.appUser);
       res.json({ success: true, data });
     } catch (err) {
       res.status(400).json({ success: false, error: err.message });
     }
   });
 
-  app.get('/api/seo-geo/oauth/callback', async (req, res) => {
+  app.get('/api/seo-geo/oauth/callback', guard, async (req, res) => {
     try {
       const { code, state, error } = req.query;
+      require('./oauthState').verify(state, 'google-seo', req.appUser);
       if (error) {
-        return res.redirect(`${googleIntegrations.FRONTEND_URL}/?seoGeoError=${encodeURIComponent(String(error))}`);
+        return res.redirect(`${googleIntegrations.FRONTEND_URL}/seo?seoGeoError=${encodeURIComponent(String(error))}`);
       }
-      await googleIntegrations.handleOAuthCallback(String(code || ''), String(state || ''));
-      res.redirect(`${googleIntegrations.FRONTEND_URL}/?seoGeoConnected=1`);
+      await googleIntegrations.handleOAuthCallback(String(code || ''));
+      res.redirect(`${googleIntegrations.FRONTEND_URL}/seo?seoGeoConnected=1`);
     } catch (err) {
       res.redirect(
-        `${googleIntegrations.FRONTEND_URL}/?seoGeoError=${encodeURIComponent(err.message || 'oauth_failed')}`
+        `${googleIntegrations.FRONTEND_URL}/seo?seoGeoError=${encodeURIComponent(err.message || 'oauth_failed')}`
       );
     }
   });
@@ -171,7 +172,7 @@ function mountRoutes(app, { requireAuth, vertex } = {}) {
       const recId = checkId === 'gbp' ? 'local-gbp-not-linked' : 'local-review-cadence';
       const fs = require('fs');
       const path = require('path');
-      const LEGACY_MANUAL = path.join(__dirname, 'data', 'company', 'seo-geo.json');
+      const LEGACY_MANUAL = require('./workspaceData').companyPath('seo-geo.json');
       const raw = fs.existsSync(LEGACY_MANUAL) ? JSON.parse(fs.readFileSync(LEGACY_MANUAL, 'utf8')) : {};
       raw.manualStatuses = { ...(raw.manualStatuses || {}), [checkId]: status };
       raw.updatedAt = new Date().toISOString();
@@ -249,6 +250,43 @@ function mountRoutes(app, { requireAuth, vertex } = {}) {
     });
   });
 
+  app.post('/api/seo-geo/suggestions', guard, async (req, res) => {
+    try {
+      const kind = req.body?.kind === 'questions' ? 'questions' : 'keywords';
+      const existing = kind === 'keywords' ? rankTracking.readKeywords().map((k) => k.keyword) : citationMonitor.readPrompts().map((p) => p.prompt);
+      const data = await require('./seoGeo/suggestions').suggest(vertex, {
+        kind,
+        profile: require('./companyKnowledge').getProfile(),
+        existing,
+      });
+      res.json({ success: true, data });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/seo-geo/pages/write', guard, async (req, res) => {
+    try {
+      const data = await require('./seoGeo/pageWriter').write(vertex, {
+        topic: req.body?.topic,
+        kind: req.body?.kind,
+        profile: require('./companyKnowledge').getProfile(),
+      });
+      res.json({ success: true, data });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.get('/api/seo-geo/pages', guard, (_req, res) => {
+    res.json({ success: true, data: require('./seoGeo/pageWriter').list() });
+  });
+
+  app.delete('/api/seo-geo/pages/:id', guard, (req, res) => {
+    require('./seoGeo/pageWriter').remove(req.params.id);
+    res.json({ success: true });
+  });
+
   app.get('/api/seo-geo/citations/prompts', guard, (_req, res) => {
     res.json({ success: true, data: citationMonitor.readPrompts() });
   });
@@ -323,7 +361,7 @@ function mountRoutes(app, { requireAuth, vertex } = {}) {
       const checklist = req.body?.checklist || {};
       const raw = require('fs');
       const path = require('path');
-      const LEGACY_MANUAL = path.join(__dirname, 'data', 'company', 'seo-geo.json');
+      const LEGACY_MANUAL = require('./workspaceData').companyPath('seo-geo.json');
       const existing = raw.existsSync(LEGACY_MANUAL) ? JSON.parse(raw.readFileSync(LEGACY_MANUAL, 'utf8')) : {};
       existing.manualStatuses = existing.manualStatuses || {};
       for (const [id, checked] of Object.entries(checklist)) {

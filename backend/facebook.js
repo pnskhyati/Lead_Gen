@@ -2,6 +2,7 @@
  * Facebook Page — OAuth (Facebook Login), publish support via page token, comment → leads sync.
  */
 const axios = require('axios');
+const oauthState = require('./oauthState');
 const store = require('./facebookStore');
 const leadsCrm = require('./leadsCrm');
 
@@ -19,6 +20,7 @@ const SCOPES = [
   'pages_manage_posts',
   'pages_manage_engagement',
   'pages_manage_metadata',
+  'pages_messaging',
   'public_profile',
 ].join(',');
 
@@ -137,7 +139,7 @@ async function subscribePage(account) {
   if (!account?.pageId || !account?.pageAccessToken) return null;
   const { data } = await axios.post(`${GRAPH}/${account.pageId}/subscribed_apps`, null, {
     params: {
-      subscribed_fields: ['feed', 'mention'].join(','),
+      subscribed_fields: ['feed', 'mention', 'messages', 'messaging_postbacks'].join(','),
       access_token: account.pageAccessToken,
     },
   });
@@ -345,9 +347,9 @@ function mountRoutes(app, { vertex, requireAuth }) {
     res.json(getStatus());
   });
 
-  app.get('/auth/facebook', (req, res) => {
+  app.get('/auth/facebook', guard, (req, res) => {
     try {
-      const url = authUrl(req.query.state || 'nexora_fb');
+      const url = authUrl(oauthState.create({ channel: 'facebook', appUser: req.appUser }));
       res.send(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Connect Facebook</title>
 <style>body{font-family:system-ui,sans-serif;max-width:36rem;margin:12vh auto;padding:0 1.5rem;line-height:1.5}
@@ -363,8 +365,13 @@ a{display:inline-block;margin-top:1rem;background:#1877f2;color:#fff;text-decora
     }
   });
 
-  app.get('/auth/facebook/callback', async (req, res) => {
-    const { code, error, error_description: errorDescription } = req.query;
+  app.get('/auth/facebook/callback', guard, async (req, res) => {
+    const { code, state, error, error_description: errorDescription } = req.query;
+    try {
+      oauthState.verify(state, 'facebook', req.appUser);
+    } catch (err) {
+      return res.send(oauthReturnScript(FRONTEND_URL, { success: false, error: err.message }));
+    }
     if (error) {
       return res.send(
         oauthReturnScript(FRONTEND_URL, { success: false, error: String(errorDescription || error) })
@@ -411,10 +418,54 @@ a{display:inline-block;margin-top:1rem;background:#1877f2;color:#fff;text-decora
   });
 }
 
+/** Reply publicly under a comment on one of the Page's posts. */
+async function replyToComment(commentId, text) {
+  const account = store.getAccount();
+  if (!account?.pageAccessToken) throw new Error('Facebook Page is not connected');
+  const { data } = await axios.post(`${GRAPH}/${commentId}/comments`, null, {
+    params: { message: text, access_token: account.pageAccessToken },
+  });
+  return data;
+}
+
+/** Recent messages people sent to the Page on Messenger (the Page's own messages are left out). */
+async function fetchRecentMessages({ limit = 15 } = {}) {
+  const account = store.getAccount();
+  if (!account?.pageId || !account?.pageAccessToken) throw new Error('Facebook Page is not connected');
+  const { data } = await axios.get(`${GRAPH}/${account.pageId}/conversations`, {
+    params: { platform: 'messenger', fields: 'id,updated_time,messages.limit(6){id,from,message,created_time}', limit, access_token: account.pageAccessToken },
+    timeout: 20000,
+  });
+  const out = [];
+  for (const conv of data.data || []) {
+    for (const m of conv.messages?.data || []) {
+      if (!m.message || !m.from?.id || String(m.from.id) === String(account.pageId)) continue;
+      out.push({ id: m.id, text: m.message, senderId: String(m.from.id), username: m.from.name || '', timestamp: m.created_time });
+    }
+  }
+  return out;
+}
+
+/** Send a Messenger message to someone who messaged the Page (allowed within 24 hours of their last message). */
+async function sendMessengerMessage(recipientId, text) {
+  const account = store.getAccount();
+  if (!account?.pageAccessToken) throw new Error('Facebook Page is not connected');
+  const { data } = await axios.post(
+    `${GRAPH}/me/messages`,
+    { recipient: { id: recipientId }, messaging_type: 'RESPONSE', message: { text: String(text).slice(0, 1900) } },
+    { params: { access_token: account.pageAccessToken }, timeout: 20000 }
+  );
+  return data;
+}
+
 module.exports = {
   isConfigured,
   getStatus,
   getPageAccount,
   mountRoutes,
   syncAndScoreLeads,
+  fetchRecentComments,
+  replyToComment,
+  fetchRecentMessages,
+  sendMessengerMessage,
 };

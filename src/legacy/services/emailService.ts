@@ -1,6 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export interface EmailStatus {
+  account?: EmailAccountView;
   configured: boolean;
   from: string | null;
   inboundWebhookPath: string;
@@ -51,3 +52,58 @@ export async function simulateInboundEmail(from: string, text: string, subject?:
   }
   return json.data;
 }
+
+// ---- the workspace's own mailbox (the agent sends from it and reads new mail from it)
+export interface EmailAccountView {
+  connected: boolean;
+  email?: string;
+  provider?: string;
+  fromName?: string;
+  connectedAt?: string | null;
+  lastPollAt?: string | null;
+  lastError?: string | null;
+  needsReconnect?: boolean;
+  repliesLast24h?: number;
+  autoReply?: boolean;
+  authType?: 'password' | 'oauth';
+}
+
+export interface EmailProviderOption {
+  id: string;
+  label: string;
+  help: string;
+  custom: boolean;
+}
+
+export interface ConnectEmailInput {
+  provider: string;
+  email: string;
+  password: string;
+  fromName?: string;
+  smtp?: { host: string; port: number };
+  imap?: { host: string; port: number };
+}
+
+async function emailCall<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${url}`, {
+    method,
+    credentials: 'include',
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const json = await parseJson(res);
+  if (!res.ok || json.success === false) throw new Error(json.error || `Request failed (${res.status})`);
+  return json.data as T;
+}
+
+export interface EmailProviders {
+  presets: EmailProviderOption[];
+  /** Which "Sign in with" buttons this server has credentials for. */
+  signIn: { google: boolean; microsoft: boolean };
+}
+export const getEmailProviders = () => emailCall<EmailProviders>('GET', '/api/email/providers');
+export const getEmailAccount = () => emailCall<EmailAccountView>('GET', '/api/email/account');
+export const connectEmailAccount = (input: ConnectEmailInput) => emailCall<EmailAccountView>('PUT', '/api/email/account', input);
+export const disconnectEmailAccount = () => emailCall<EmailAccountView>('DELETE', '/api/email/account');
+export const sendEmailAccountTest = () => emailCall<{ sentTo: string }>('POST', '/api/email/account/test', {});
+export const setEmailAutoReply = (enabled: boolean) => emailCall<EmailAccountView>('PUT', '/api/email/auto-reply', { enabled });

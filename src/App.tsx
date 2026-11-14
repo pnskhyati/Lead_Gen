@@ -11,7 +11,6 @@ import LiveNexoraShell from './components/LiveNexoraShell';
 import InfoModal from './components/InfoModal';
 import AuthModal, { UserSession } from './components/AuthModal';
 import OnboardingFlow, { OnboardingData } from './components/OnboardingFlow';
-import BrandSetupWizard from './legacy/components/BrandSetupWizard';
 import { getCurrentUser, logout } from './legacy/services/authService';
 import { getCompanySetup } from './legacy/services/companyService';
 
@@ -113,24 +112,21 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // The onboarding modal registers the account and saves the company profile itself,
+  // so by now there is a real session and a completed setup.
   const handleOnboardingComplete = async (data: OnboardingData) => {
-    // Prefer real register if credentials were collected; otherwise open login.
-    setCurrentUser({
-      name: data.name,
-      email: data.email,
-      workspace: data.businessName || 'Nexora',
-      role: 'Owner',
-    });
     setIsOnboardingOpen(false);
     setIsAuthOpen(false);
-    // If no session cookie yet, force login so APIs work
-    const existing = await getCurrentUser();
-    if (!existing) {
+    const user = await getCurrentUser();
+    if (!user) {
       setAuthMode('login');
       setIsAuthOpen(true);
       setInApp(false);
       return;
     }
+    setCurrentUser({ ...sessionFromUser(user), workspace: data.businessName || 'Nexora' });
+    setSetupComplete(true);
+    setSetupChecked(true);
     setInApp(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -171,12 +167,14 @@ export default function App() {
 
     if (!setupComplete) {
       return (
-        <div className="min-h-screen bg-[#F8FAFC]">
-          <BrandSetupWizard
-            onComplete={() => {
-              setSetupComplete(true);
-            }}
-            onLogout={handleReturnToLanding}
+        <div className="min-h-screen bg-[#071C1A]">
+          <OnboardingFlow
+            isOpen
+            initialStep="business"
+            existingUser={{ name: currentUser.name, email: currentUser.email }}
+            onClose={handleReturnToLanding}
+            onOpenLogin={handleOpenLogin}
+            onComplete={() => setSetupComplete(true)}
           />
         </div>
       );

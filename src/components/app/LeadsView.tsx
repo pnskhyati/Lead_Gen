@@ -149,8 +149,8 @@ export default function LeadsView({
       }
 
       if (ownerFilter !== 'All') {
-        if (ownerFilter === 'AI' && (l.handlingMode === 'HUMAN' || l.assignee?.name?.includes('Priya'))) return false;
-        if (ownerFilter === 'Human' && l.handlingMode !== 'HUMAN' && !l.assignee?.name?.includes('Priya')) return false;
+        if (ownerFilter === 'AI' && (l.handlingMode === 'HUMAN' || false)) return false;
+        if (ownerFilter === 'Human' && l.handlingMode !== 'HUMAN' && !false) return false;
       }
 
       if (channelFilter !== 'All') {
@@ -835,10 +835,10 @@ export default function LeadsView({
 
                           {/* Owner */}
                           <div className="col-span-1 text-[11px]">
-                            {lead.handlingMode === 'HUMAN' || lead.assignee?.name?.includes('Priya') ? (
+                            {lead.handlingMode === 'HUMAN' || false ? (
                               <span className="flex items-center space-x-1 text-sky-600 dark:text-sky-300 font-medium">
                                 <User className="w-3.5 h-3.5" />
-                                <span>Priya</span>
+                                <span>Team</span>
                               </span>
                             ) : (
                               <span className="flex items-center space-x-1 text-teal-600 dark:text-teal-400 font-medium">
@@ -1075,7 +1075,7 @@ export default function LeadsView({
                 { label: 'Reactivate', key: 'reactivationPending', hint: 'Dormant leads', summary: true },
               ].map((step) => {
                 const val = step.summary
-                  ? (lifecycleSummary as Record<string, number>)[step.key] ?? 0
+                  ? (lifecycleSummary as unknown as Record<string, number>)[step.key] ?? 0
                   : lifecycleSummary.stages?.[step.key] ?? 0;
                 return (
                   <div key={step.label}>

@@ -1,15 +1,16 @@
 const fs = require('fs');
 const path = require('path');
 
-const DATA_DIR = path.join(__dirname, '..', 'data', 'company');
-const AUDIT_STORE = path.join(DATA_DIR, 'seo-geo-audits.json');
-const STATUS_STORE = path.join(DATA_DIR, 'seo-geo-recommendation-status.json');
-const LEGACY_MANUAL = path.join(DATA_DIR, 'seo-geo.json');
+const wsData = require('../workspaceData');
+
+const AUDIT_STORE = () => wsData.companyPath('seo-geo-audits.json');
+const STATUS_STORE = () => wsData.companyPath('seo-geo-recommendation-status.json');
+const LEGACY_MANUAL = () => wsData.companyPath('seo-geo.json');
 
 const MAX_AUDITS = 25;
 
 function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  wsData.ensureCompanyDir();
 }
 
 function readJson(file, fallback) {
@@ -28,14 +29,14 @@ function writeJson(file, data) {
 }
 
 function readAuditStore() {
-  return readJson(AUDIT_STORE, { latestAuditId: null, audits: [] });
+  return readJson(AUDIT_STORE(), { latestAuditId: null, audits: [] });
 }
 
 function saveAudit(audit) {
   const store = readAuditStore();
   store.audits = [audit, ...(store.audits || [])].slice(0, MAX_AUDITS);
   store.latestAuditId = audit.id;
-  writeJson(AUDIT_STORE, store);
+  writeJson(AUDIT_STORE(), store);
   return audit;
 }
 
@@ -57,19 +58,19 @@ function listAuditHistory(limit = 10) {
 }
 
 function readRecommendationStatuses() {
-  return readJson(STATUS_STORE, { statuses: {} }).statuses || {};
+  return readJson(STATUS_STORE(), { statuses: {} }).statuses || {};
 }
 
 function setRecommendationStatus(id, status) {
-  const all = readJson(STATUS_STORE, { statuses: {} });
+  const all = readJson(STATUS_STORE(), { statuses: {} });
   all.statuses = all.statuses || {};
   all.statuses[id] = { status, updatedAt: new Date().toISOString() };
-  writeJson(STATUS_STORE, all);
+  writeJson(STATUS_STORE(), all);
   return all.statuses[id];
 }
 
 function readLegacyManualStatuses() {
-  const raw = readJson(LEGACY_MANUAL, { manualStatuses: {} });
+  const raw = readJson(LEGACY_MANUAL(), { manualStatuses: {} });
   return raw.manualStatuses || {};
 }
 

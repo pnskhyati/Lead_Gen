@@ -30,7 +30,10 @@ async function fetchUrl(url, { maxRedirects = 4, skipSsrf = false } = {}) {
     let current = url;
     let redirects = 0;
     while (redirects <= maxRedirects) {
-      const res = await fetch(current, {
+      // Public fetches go through the DNS-pinned client so a hostname cannot rebind to a private IP
+      // between the safety check and the connection. skipSsrf is for trusted internal callers only.
+      const doFetch = skipSsrf ? fetch : require('./safeFetch').safeFetch;
+      const res = await doFetch(current, {
         signal: controller.signal,
         headers: {
           'User-Agent': USER_AGENT,
@@ -45,6 +48,10 @@ async function fetchUrl(url, { maxRedirects = 4, skipSsrf = false } = {}) {
           return { ok: false, url: current, status: res.status, error: 'Redirect without location' };
         }
         current = new URL(loc, current).href;
+        if (!skipSsrf) {
+          const { assertSafeFetchUrl } = require('./ssrf');
+          await assertSafeFetchUrl(current);
+        }
         redirects += 1;
         continue;
       }

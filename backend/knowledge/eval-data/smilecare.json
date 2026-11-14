@@ -1,0 +1,222 @@
+{
+  "corpus": "../../../SmileCare_Demo_RAG.txt",
+  "note": "Labelled questions for the SmileCare demo corpus. answerable=true means the corpus contains the answer. Questions are paraphrased so keyword overlap alone cannot find them. Removed: \"XZ-17\" and \"hair transplant\" questions, because the corpus itself names them in a guardrail line (label noise).",
+  "questions": [
+    {
+      "q": "what time do you close on weekdays",
+      "answerable": true
+    },
+    {
+      "q": "can you come to my house for a checkup",
+      "answerable": true
+    },
+    {
+      "q": "do you work on weekends",
+      "answerable": true
+    },
+    {
+      "q": "how much for getting my teeth brightened",
+      "answerable": true
+    },
+    {
+      "q": "what is the fee for a nerve treatment on one tooth",
+      "answerable": true
+    },
+    {
+      "q": "do you fix crooked teeth",
+      "answerable": true
+    },
+    {
+      "q": "can I pay using UPI",
+      "answerable": true
+    },
+    {
+      "q": "can I bring my 6 year old",
+      "answerable": true
+    },
+    {
+      "q": "will the procedure hurt",
+      "answerable": true
+    },
+    {
+      "q": "how do I get to your clinic",
+      "answerable": true
+    },
+    {
+      "q": "is there somewhere to park",
+      "answerable": true
+    },
+    {
+      "q": "what is the price for replacing a missing tooth with an implant",
+      "answerable": true
+    },
+    {
+      "q": "do you take health insurance",
+      "answerable": true
+    },
+    {
+      "q": "can I just walk in without booking",
+      "answerable": true
+    },
+    {
+      "q": "how can I reschedule my appointment",
+      "answerable": true
+    },
+    {
+      "q": "how long is a check-up appointment",
+      "answerable": true
+    },
+    {
+      "q": "do you have any current promotions",
+      "answerable": true
+    },
+    {
+      "q": "what is your phone number",
+      "answerable": true
+    },
+    {
+      "q": "what is the cost of a cap for a damaged tooth",
+      "answerable": true
+    },
+    {
+      "q": "how much to pull out a tooth",
+      "answerable": true
+    },
+    {
+      "q": "what does a filling cost",
+      "answerable": true
+    },
+    {
+      "q": "are you open on public holidays",
+      "answerable": true
+    },
+    {
+      "q": "how many visits does a root canal take",
+      "answerable": true
+    },
+    {
+      "q": "how much is a scale and polish",
+      "answerable": true
+    },
+    {
+      "q": "what email can I write to",
+      "answerable": true
+    },
+    {
+      "q": "what if I message you after midnight",
+      "answerable": true
+    },
+    {
+      "q": "do you do braces consultations",
+      "answerable": true
+    },
+    {
+      "q": "is whitening okay if I am pregnant",
+      "answerable": true
+    },
+    {
+      "q": "are you open on Sunday afternoon",
+      "answerable": true
+    },
+    {
+      "q": "what is the cost for a dental implant",
+      "answerable": true
+    },
+    {
+      "q": "what is the weather in Mumbai tomorrow",
+      "answerable": false
+    },
+    {
+      "q": "can you recommend a good biryani place",
+      "answerable": false
+    },
+    {
+      "q": "how do I reset my router password",
+      "answerable": false
+    },
+    {
+      "q": "who won the cricket match yesterday",
+      "answerable": false
+    },
+    {
+      "q": "what is the capital of France",
+      "answerable": false
+    },
+    {
+      "q": "write me a python function to sort a list",
+      "answerable": false
+    },
+    {
+      "q": "do you sell motorcycle insurance",
+      "answerable": false
+    },
+    {
+      "q": "what is the price of bitcoin today",
+      "answerable": false
+    },
+    {
+      "q": "do you offer LASIK eye surgery",
+      "answerable": false
+    },
+    {
+      "q": "do you do cosmetic veneers and what do they cost",
+      "answerable": false
+    },
+    {
+      "q": "do you provide teledentistry video consultations",
+      "answerable": false
+    },
+    {
+      "q": "do you make dentures and what is the price",
+      "answerable": false
+    },
+    {
+      "q": "who is your head dentist and what are her qualifications",
+      "answerable": false
+    },
+    {
+      "q": "do you have an in-house pharmacy",
+      "answerable": false
+    },
+    {
+      "q": "what are the early symptoms of gum disease",
+      "answerable": false
+    },
+    {
+      "q": "how many years has the clinic been operating",
+      "answerable": false
+    },
+    {
+      "q": "do you offer EMI financing for treatments",
+      "answerable": false
+    },
+    {
+      "q": "do you treat patients who have diabetes",
+      "answerable": false
+    },
+    {
+      "q": "what languages do your doctors speak",
+      "answerable": false
+    },
+    {
+      "q": "is there a wheelchair ramp at the clinic",
+      "answerable": false
+    },
+    {
+      "q": "do you sell toothpaste or mouthwash",
+      "answerable": false
+    },
+    {
+      "q": "can you book me a flight to Delhi",
+      "answerable": false
+    },
+    {
+      "q": "what is the best phone to buy under 20000 rupees",
+      "answerable": false
+    },
+    {
+      "q": "how do I lose weight quickly",
+      "answerable": false
+    }
+  ]
+}

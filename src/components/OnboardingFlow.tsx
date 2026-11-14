@@ -1,132 +1,194 @@
-import React, { useState, useRef } from 'react';
-import { 
-  X, 
-  ArrowRight, 
-  ArrowLeft, 
-  Check, 
-  Eye, 
-  EyeOff, 
-  Sparkles, 
-  Globe, 
-  Mail, 
-  Plus, 
-  Trash2, 
-  CheckCircle2, 
-  Building2, 
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  X,
+  ArrowRight,
+  ArrowLeft,
+  Check,
+  Eye,
+  EyeOff,
+  Sparkles,
+  Globe,
+  Mail,
+  Plus,
+  Trash2,
+  CheckCircle2,
+  Building2,
   HelpCircle,
   ChevronDown,
   Loader2,
   UploadCloud,
   FileText
 } from 'lucide-react';
-import { UserSession } from './AuthModal';
+import { register } from '../legacy/services/authService';
+import {
+  ANALYZE_STAGE_LABEL,
+  analyzeBusiness,
+  completeCompanySetup,
+  deleteCompanyDocument,
+  getOnboardingDraft,
+  listCompanyDocuments,
+  saveOnboardingDraft,
+  uploadCompanyFiles,
+  type BusinessDraft,
+  type CompanyDocumentMeta,
+} from '../legacy/services/companyService';
+
+type Step = 'signup' | 'business' | 'channels' | 'ai-basics';
+type Tone = 'Professional' | 'Friendly' | 'Premium' | 'Conversational';
+type ChannelKey = 'whatsapp' | 'instagram' | 'facebook' | 'email';
 
 export interface OnboardingData {
-  name: string;
-  email: string;
-  password?: string;
   businessName: string;
-  website: string;
-  industry: string;
-  location: string;
-  whatYouSell: string;
-  companyDocuments?: { id: string; name: string; size: string }[];
-  connectedChannels: {
-    whatsapp: boolean;
-    instagram: boolean;
-    facebook: boolean;
-    webchat?: boolean;
-    email: boolean;
-  };
-  aiTone: 'Professional' | 'Friendly' | 'Premium' | 'Conversational';
-  faqs: { id: string; question: string; answer: string }[];
-  handoffRules: {
-    customerAsksPerson: boolean;
-    aiNotSure: boolean;
-    dealValueAbove: boolean;
-    dealValueThreshold: string;
-  };
 }
 
 interface OnboardingFlowProps {
   isOpen: boolean;
-  initialStep?: 'signup' | 'business' | 'channels' | 'ai-basics';
+  initialStep?: Step;
+  /** Set when the visitor already has an account (resuming setup): skips signup. */
+  existingUser?: { name: string; email: string } | null;
   onClose: () => void;
   onOpenLogin: () => void;
   onComplete: (data: OnboardingData) => void;
 }
 
+const BASE_INDUSTRIES = [
+  'Interior design',
+  'Real estate',
+  'Professional services',
+  'Agency & Consulting',
+  'Healthcare & Wellness',
+  'Technology & SaaS',
+  'E-commerce & Retail',
+];
+
+const TONE_PRESETS: Record<Tone, { voiceTone: string; writingStyle: string }> = {
+  Professional: {
+    voiceTone: 'Professional, precise and respectful. Confident without being stiff.',
+    writingStyle: 'Clear, well-structured sentences. Answer the question first, then offer the next step.',
+  },
+  Friendly: {
+    voiceTone: 'Friendly, warm and approachable. Helpful without being pushy.',
+    writingStyle: 'Short, plain sentences. Answer the question first, then offer the next step.',
+  },
+  Premium: {
+    voiceTone: 'Refined, calm and assured. Understated luxury; never salesy.',
+    writingStyle: 'Elegant, concise sentences with considered word choice. No exclamation marks or slang.',
+  },
+  Conversational: {
+    voiceTone: 'Relaxed and conversational, like a knowledgeable friend. Natural and personable.',
+    writingStyle: 'Casual, short sentences and contractions. Ask one question at a time.',
+  },
+};
+
+const ACCEPTED_FILES = '.pdf,.docx,.txt,.md,.csv,.json,.html,.png,.jpg,.jpeg,.webp';
+const newFaq = () => ({ id: `faq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, question: '', answer: '' });
+
 export default function OnboardingFlow({
   isOpen,
   initialStep = 'signup',
+  existingUser = null,
   onClose,
   onOpenLogin,
   onComplete
 }: OnboardingFlowProps) {
-  const [currentStep, setCurrentStep] = useState<'signup' | 'business' | 'channels' | 'ai-basics'>(initialStep);
+  const [currentStep, setCurrentStep] = useState<Step>(existingUser ? 'business' : initialStep);
+  const [authed, setAuthed] = useState(Boolean(existingUser));
+  const [busy, setBusy] = useState(false);
+  const [stepError, setStepError] = useState<string | null>(null);
 
   // Step 0: Signup fields
-  const [name, setName] = useState('');
-  const [workEmail, setWorkEmail] = useState('');
+  const [name, setName] = useState(existingUser?.name || '');
+  const [workEmail, setWorkEmail] = useState(existingUser?.email || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [signupError, setSignupError] = useState<string | null>(null);
 
   // Step 1: Business fields
-  const [businessName, setBusinessName] = useState('Acme Studio');
-  const [website, setWebsite] = useState('acme.com');
-  const [industry, setIndustry] = useState('Interior design');
-  const [location, setLocation] = useState('Pune');
-  const [whatYouSell, setWhatYouSell] = useState('Residential and office interiors, bespoke styling, and fit-outs.');
+  const [businessName, setBusinessName] = useState('');
+  const [website, setWebsite] = useState('');
+  const [industry, setIndustry] = useState('');
+  const [location, setLocation] = useState('');
+  const [whatYouSell, setWhatYouSell] = useState('');
+  const [businessPhone, setBusinessPhone] = useState('');
+  const [businessAddress, setBusinessAddress] = useState('');
+  const [businessHours, setBusinessHours] = useState('');
   const [isAutoFilling, setIsAutoFilling] = useState(false);
-  const [companyDocuments, setCompanyDocuments] = useState<{ id: string; name: string; size: string }[]>([
-    { id: 'doc-1', name: 'Acme_Company_Profile.pdf', size: '1.2 MB' },
-    { id: 'doc-2', name: 'Pricing_and_Services_2024.pdf', size: '850 KB' }
-  ]);
+  const [autoFillNote, setAutoFillNote] = useState<string | null>(null);
+  const [autoFillStage, setAutoFillStage] = useState<string>('');
+  const [handoffEmail, setHandoffEmail] = useState('');
+  /** What the AI learned (voice, vocabulary…) — carried into the final setup call. */
+  const [learned, setLearned] = useState<BusinessDraft | null>(null);
+  const [companyDocuments, setCompanyDocuments] = useState<CompanyDocumentMeta[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const newDocs = Array.from(files).map((f, i) => ({
-      id: `doc-${Date.now()}-${i}`,
-      name: f.name,
-      size: `${(f.size / (1024 * 1024)).toFixed(1)} MB`
-    }));
-    setCompanyDocuments(prev => [...prev, ...newDocs]);
-  };
-
-  const handleRemoveDoc = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setCompanyDocuments(prev => prev.filter(d => d.id !== id));
-  };
-
-  // Step 2: Channels fields
-  const [connectedChannels, setConnectedChannels] = useState({
-    whatsapp: true, // Recommended pre-activated or easily toggleable
+  // Step 2: Channels the business plans to use (accounts are connected in the app via OAuth)
+  const [connectedChannels, setConnectedChannels] = useState<Record<ChannelKey, boolean>>({
+    whatsapp: true,
     instagram: false,
     facebook: false,
     email: false
   });
 
   // Step 3: AI Basics fields
-  const [aiTone, setAiTone] = useState<'Professional' | 'Friendly' | 'Premium' | 'Conversational'>('Friendly');
-  const [faqs, setFaqs] = useState([
-    { id: '1', question: 'What are your prices?', answer: 'Starts at ₹2.5L for residential projects, customized per square foot.' },
-    { id: '2', question: 'Do you work outside Pune?', answer: 'Yes, across Mumbai, Pune, and Bangalore.' },
-    { id: '3', question: 'What is the project turnaround time?', answer: 'Design mockups take 2 weeks; turnkey execution is typically 6-8 weeks.' }
-  ]);
+  const [botName, setBotName] = useState('Ava');
+  const [aiTone, setAiTone] = useState<Tone>('Friendly');
+  const [faqs, setFaqs] = useState([newFaq(), newFaq(), newFaq()]);
   const [handoffRules, setHandoffRules] = useState({
     customerAsksPerson: true,
     aiNotSure: true,
     dealValueAbove: false,
-    dealValueThreshold: '₹50,000'
+    dealValueThreshold: ''
   });
+
+  // Resume: hydrate saved progress + already-uploaded documents once the user is signed in.
+  const hydrated = useRef(false);
+  useEffect(() => {
+    if (!isOpen || !authed || hydrated.current) return;
+    hydrated.current = true;
+    void listCompanyDocuments().then(setCompanyDocuments).catch(() => undefined);
+    void getOnboardingDraft<Record<string, any>>()
+      .then((d) => {
+        if (!d) return;
+        if (d.businessName) setBusinessName(d.businessName);
+        if (d.website) setWebsite(d.website);
+        if (d.industry) setIndustry(d.industry);
+        if (d.location) setLocation(d.location);
+        if (d.whatYouSell) setWhatYouSell(d.whatYouSell);
+        if (d.businessPhone) setBusinessPhone(d.businessPhone);
+        if (d.businessAddress) setBusinessAddress(d.businessAddress);
+        if (d.businessHours) setBusinessHours(d.businessHours);
+        if (d.botName) setBotName(d.botName);
+        if (d.aiTone) setAiTone(d.aiTone);
+        if (d.connectedChannels) setConnectedChannels(d.connectedChannels);
+        if (Array.isArray(d.faqs) && d.faqs.length) setFaqs(d.faqs);
+        if (d.handoffRules) setHandoffRules(d.handoffRules);
+        if (d.learned) setLearned(d.learned);
+        if (d.handoffEmail) setHandoffEmail(d.handoffEmail);
+        if (d.step && d.step !== 'signup') setCurrentStep(d.step);
+      })
+      .catch(() => undefined);
+  }, [isOpen, authed]);
 
   if (!isOpen) return null;
 
-  // Handle Signup Submission
-  const handleSignupSubmit = (e?: React.FormEvent) => {
+  const persistDraft = (step: Step) => {
+    if (!authed) return;
+    void saveOnboardingDraft({
+      step, businessName, website, industry, location, whatYouSell, businessPhone, businessAddress,
+      businessHours, botName, aiTone, connectedChannels, faqs, handoffRules, learned, handoffEmail,
+    });
+  };
+
+  const goTo = (step: Step) => {
+    setStepError(null);
+    persistDraft(step);
+    setCurrentStep(step);
+  };
+
+  // Handle Signup Submission — creates the real account (and its own workspace)
+  const handleSignupSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setSignupError(null);
 
@@ -134,37 +196,107 @@ export default function OnboardingFlow({
       setSignupError('Please provide your work email.');
       return;
     }
-    if (password && password.length < 8) {
+    if (password.length < 8) {
       setSignupError('Password must be at least 8 characters.');
       return;
     }
 
-    // Default business name if empty
-    if (!name.trim()) setName('Aryan Mehta');
-    setCurrentStep('business');
+    setBusy(true);
+    try {
+      await register(workEmail.trim(), password, name.trim() || undefined);
+      setAuthed(true);
+      setPassword('');
+      setCurrentStep('business');
+    } catch (err) {
+      setSignupError(err instanceof Error ? err.message : 'Could not create your account.');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  // Google Continue
-  const handleGoogleSignup = () => {
-    setName('Alex Rivera');
-    setWorkEmail('alex.workspace@gmail.com');
-    setCurrentStep('business');
-  };
-
-  // Magic Website Autofill
-  const handleFillFromWebsite = () => {
+  // Learn the business from its website (and any uploaded documents)
+  const handleFillFromWebsite = async () => {
+    if (!website.trim()) {
+      setStepError('Enter your website address first.');
+      return;
+    }
+    setStepError(null);
+    setAutoFillNote(null);
+    setAutoFillStage(ANALYZE_STAGE_LABEL.queued);
     setIsAutoFilling(true);
-    setTimeout(() => {
+    try {
+      const { draft, sources } = await analyzeBusiness(website.trim(), (stage, detail) => {
+        setAutoFillStage(
+          stage === 'reading' && detail?.pages
+            ? `Reading ${detail.pages} page${detail.pages === 1 ? '' : 's'}${detail.rendered ? ' (rendered)' : ''}…`
+            : ANALYZE_STAGE_LABEL[stage]
+        );
+      });
+      setLearned(draft);
+      if (draft.companyName) setBusinessName(draft.companyName);
+      if (draft.industry) setIndustry(draft.industry);
+      if (draft.location) setLocation(draft.location);
+      if (draft.whatYouSell) setWhatYouSell(draft.whatYouSell);
+      if (draft.businessPhone) setBusinessPhone(draft.businessPhone);
+      if (draft.businessAddress) setBusinessAddress(draft.businessAddress);
+      if (draft.businessHours) setBusinessHours(draft.businessHours);
+      if (draft.faqs?.length) {
+        setFaqs((prev) => {
+          const filled = prev.filter((f) => f.question.trim() && f.answer.trim());
+          return [...filled, ...draft.faqs!.map((f) => ({ ...f, id: `${f.id}-${Date.now()}` }))];
+        });
+      }
+      setAutoFillNote(
+        `Read ${sources.pages.length} page${sources.pages.length === 1 ? '' : 's'} from your site` +
+          `${draft.faqs?.length ? ` and drafted ${draft.faqs.length} FAQs` : ''}. Review everything — anything the site didn't say was left blank.`
+      );
+      void listCompanyDocuments().then(setCompanyDocuments).catch(() => undefined);
+    } catch (err) {
+      setStepError(err instanceof Error ? err.message : 'Could not read that website.');
+    } finally {
       setIsAutoFilling(false);
-      setBusinessName('Acme Studio');
-      setIndustry('Interior design');
-      setLocation('Pune');
-      setWhatYouSell('High-end residential transformations, minimalist commercial studio spaces, and custom modular finishes.');
-    }, 800);
+    }
+  };
+
+  const handleFileUpload = async (files: FileList | File[] | null) => {
+    const list = files ? Array.from(files) : [];
+    if (!list.length) return;
+    setStepError(null);
+    setIsUploading(true);
+    try {
+      const results = await uploadCompanyFiles(list);
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length) setStepError(failed.map((f) => `${f.fileName}: ${f.error}`).join(' · '));
+      setCompanyDocuments(await listCompanyDocuments());
+    } catch (err) {
+      setStepError(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleRemoveDoc = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await deleteCompanyDocument(id);
+      setCompanyDocuments((prev) => prev.filter((d) => d.id !== id));
+    } catch (err) {
+      setStepError(err instanceof Error ? err.message : 'Could not remove the document.');
+    }
+  };
+
+  const formatSize = (chars: number) => `${Math.max(1, Math.round(chars / 1000))}k chars`;
+
+  const handleBusinessContinue = () => {
+    if (!businessName.trim()) {
+      setStepError('Business name is required.');
+      return;
+    }
+    goTo('channels');
   };
 
   // Toggle Channel
-  const toggleChannel = (channel: keyof typeof connectedChannels) => {
+  const toggleChannel = (channel: ChannelKey) => {
     setConnectedChannels(prev => ({
       ...prev,
       [channel]: !prev[channel]
@@ -173,11 +305,7 @@ export default function OnboardingFlow({
 
   // Add FAQ
   const handleAddFaq = () => {
-    const newId = String(Date.now());
-    setFaqs(prev => [
-      ...prev,
-      { id: newId, question: '', answer: '' }
-    ]);
+    setFaqs(prev => [...prev, newFaq()]);
   };
 
   // Remove FAQ
@@ -191,24 +319,47 @@ export default function OnboardingFlow({
     setFaqs(prev => prev.map(f => f.id === id ? { ...f, [field]: val } : f));
   };
 
-  // Finish Setup
-  const handleFinish = () => {
-    const finalData: OnboardingData = {
-      name: name || 'Aryan Mehta',
-      email: workEmail || 'you@acme.com',
-      password,
-      businessName: businessName || 'Acme Studio',
-      website: website || 'acme.com',
-      industry,
-      location,
-      whatYouSell,
-      companyDocuments,
-      connectedChannels,
-      aiTone,
-      faqs,
-      handoffRules
-    };
-    onComplete(finalData);
+  // Finish Setup — saves everything to the server (the workspace's knowledge base)
+  const handleFinish = async () => {
+    setStepError(null);
+    if (!businessName.trim()) {
+      setStepError('Business name is required — go back to step 1.');
+      return;
+    }
+    if (!botName.trim()) {
+      setStepError('Give your assistant a name.');
+      return;
+    }
+    const preset = TONE_PRESETS[aiTone];
+    setBusy(true);
+    try {
+      await completeCompanySetup({
+        companyName: businessName.trim(),
+        botName: botName.trim(),
+        industry,
+        location,
+        productsFocus: whatYouSell,
+        websiteUrl: website,
+        businessPhone,
+        businessAddress,
+        businessHours,
+        handoffEmail: handoffEmail.trim(),
+        tagline: learned?.tagline,
+        audience: learned?.audience,
+        vocabulary: learned?.vocabulary,
+        avoid: learned?.avoid,
+        voiceTone: learned?.voiceTone ? `${preset.voiceTone} ${learned.voiceTone}` : preset.voiceTone,
+        writingStyle: learned?.writingStyle || preset.writingStyle,
+        faqs: faqs.filter((f) => f.question.trim() && f.answer.trim()),
+        handoffRules,
+        plannedChannels: connectedChannels,
+      });
+      onComplete({ businessName: businessName.trim() });
+    } catch (err) {
+      setStepError(err instanceof Error ? err.message : 'Could not finish setup.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -225,7 +376,8 @@ export default function OnboardingFlow({
           type="button"
           onClick={onClose}
           className="absolute top-4 right-4 text-[#A9BFA5]/60 hover:text-[#E8E9D8] p-1.5 transition-colors cursor-pointer"
-          aria-label="Close"
+          aria-label={existingUser ? 'Sign out' : 'Close'}
+          title={existingUser ? 'Sign out' : 'Close'}
         >
           <X className="w-5 h-5" strokeWidth={1.5} />
         </button>
@@ -267,7 +419,7 @@ export default function OnboardingFlow({
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Aryan Mehta"
+                    placeholder="Your name"
                     className="w-full px-3 py-2 bg-[#051513] border border-[rgba(169,191,165,0.3)] rounded-[2px] text-[#E8E9D8] placeholder-[#A9BFA5]/40 text-xs focus:outline-none focus:border-[#A9BFA5] transition-colors"
                   />
                 </div>
@@ -324,9 +476,11 @@ export default function OnboardingFlow({
               <button
                 type="submit"
                 id="signup-create-account-btn"
-                className="w-full py-2.5 bg-[#E8E9D8] text-[#071C1A] hover:bg-white font-bold uppercase tracking-widest text-xs rounded-[2px] transition-all cursor-pointer shadow-md"
+                disabled={busy}
+                className="w-full py-2.5 bg-[#E8E9D8] text-[#071C1A] hover:bg-white disabled:opacity-60 disabled:cursor-wait font-bold uppercase tracking-widest text-xs rounded-[2px] transition-all cursor-pointer shadow-md flex items-center justify-center space-x-2"
               >
-                Create account
+                {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{busy ? 'Creating account…' : 'Create account'}</span>
               </button>
             </form>
 
@@ -341,8 +495,9 @@ export default function OnboardingFlow({
             {/* [ G Continue with Google ] */}
             <button
               type="button"
-              onClick={handleGoogleSignup}
-              className="w-full py-2.5 px-3 bg-[#051513] hover:bg-[#0D2D2A] border border-[rgba(169,191,165,0.3)] rounded-[2px] text-xs text-[#E8E9D8] flex items-center justify-center space-x-3 transition-colors cursor-pointer"
+              disabled
+              title="Google sign-in is not available yet"
+              className="w-full py-2.5 px-3 bg-[#051513] border border-[rgba(169,191,165,0.3)] rounded-[2px] text-xs text-[#E8E9D8] flex items-center justify-center space-x-3 opacity-50 cursor-not-allowed"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -350,7 +505,7 @@ export default function OnboardingFlow({
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
                 <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
               </svg>
-              <span className="font-medium">Continue with Google</span>
+              <span className="font-medium">Continue with Google (coming soon)</span>
             </button>
 
             {/* Footnote Terms & Login */}
@@ -411,7 +566,7 @@ export default function OnboardingFlow({
                   type="text"
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
-                  placeholder="Acme Studio"
+                  placeholder="Your business name"
                   className="w-full px-3 py-2 bg-[#051513] border border-[rgba(169,191,165,0.3)] rounded-[2px] text-[#E8E9D8] text-xs focus:outline-none focus:border-[#A9BFA5] transition-colors"
                 />
               </div>
@@ -440,7 +595,7 @@ export default function OnboardingFlow({
                     {isAutoFilling ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Extracting...</span>
+                        <span>{autoFillStage || 'Reading your site…'}</span>
                       </>
                     ) : (
                       <>
@@ -464,13 +619,13 @@ export default function OnboardingFlow({
                       onChange={(e) => setIndustry(e.target.value)}
                       className="w-full px-3 py-2 bg-[#051513] border border-[rgba(169,191,165,0.3)] rounded-[2px] text-[#E8E9D8] text-xs appearance-none focus:outline-none focus:border-[#A9BFA5] transition-colors cursor-pointer"
                     >
-                      <option value="Interior design">Interior design</option>
-                      <option value="Real estate">Real estate & Architecture</option>
-                      <option value="Professional services">Professional services</option>
-                      <option value="Agency & Consulting">Agency & Consulting</option>
-                      <option value="Healthcare & Wellness">Healthcare & Clinic</option>
-                      <option value="Technology & SaaS">Technology & SaaS</option>
-                      <option value="E-commerce & Retail">E-commerce & Retail</option>
+                      <option value="">Select…</option>
+                      {industry && !BASE_INDUSTRIES.includes(industry) && (
+                        <option value={industry}>{industry}</option>
+                      )}
+                      {BASE_INDUSTRIES.map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
                     </select>
                     <ChevronDown className="w-3.5 h-3.5 text-[#A9BFA5]/70 absolute right-3 top-2.5 pointer-events-none" />
                   </div>
@@ -496,7 +651,7 @@ export default function OnboardingFlow({
                       onDrop={(e) => {
                         e.preventDefault();
                         setIsDragging(false);
-                        handleFileUpload(e.dataTransfer.files);
+                        void handleFileUpload(e.dataTransfer.files);
                       }}
                       onClick={() => fileInputRef.current?.click()}
                       className={`border border-dashed p-3 rounded-[3px] text-center cursor-pointer transition-all duration-150 ${
@@ -509,18 +664,25 @@ export default function OnboardingFlow({
                         ref={fileInputRef}
                         type="file"
                         multiple
-                        accept=".pdf,.doc,.docx,.txt,.csv,.png,.jpg"
+                        accept={ACCEPTED_FILES}
                         className="hidden"
-                        onChange={(e) => handleFileUpload(e.target.files)}
+                        onChange={(e) => {
+                          void handleFileUpload(e.target.files);
+                          e.target.value = '';
+                        }}
                       />
                       <div className="flex items-center justify-center space-x-2 text-[#A9BFA5]">
-                        <UploadCloud className="w-4 h-4 text-emerald-400" />
+                        {isUploading ? (
+                          <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" />
+                        ) : (
+                          <UploadCloud className="w-4 h-4 text-emerald-400" />
+                        )}
                         <span className="text-xs text-[#E8E9D8] font-medium">
-                          Upload company documents
+                          {isUploading ? 'Reading your documents…' : 'Upload company documents'}
                         </span>
                       </div>
                       <p className="text-[10px] text-[#A9BFA5]/70 mt-1 leading-snug">
-                        PDF, DOCX, CSV, or brochures (up to 10MB)
+                        PDF, DOCX, TXT, MD, CSV, JSON, HTML or photos of scanned pages — price lists, brochures, FAQs (up to 10MB each)
                       </p>
                     </div>
 
@@ -535,10 +697,10 @@ export default function OnboardingFlow({
                             <div className="flex items-center space-x-2 truncate min-w-0">
                               <FileText className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                               <span className="text-[#E8E9D8] truncate font-mono">
-                                {doc.name}
+                                {doc.title}
                               </span>
                               <span className="text-[10px] text-[#A9BFA5]/60 shrink-0">
-                                {doc.size}
+                                {formatSize(doc.charCount)}
                               </span>
                             </div>
                             <button
@@ -585,18 +747,57 @@ export default function OnboardingFlow({
               </div>
             </div>
 
-            {/* Actions: [Skip for now] [Continue →] */}
+            {/* How customers reach you — answers to "where are you / when are you open" */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-[#A9BFA5] mb-1">Phone</label>
+                <input
+                  type="text"
+                  value={businessPhone}
+                  onChange={(e) => setBusinessPhone(e.target.value)}
+                  placeholder="+91 …"
+                  className="w-full px-3 py-2 bg-[#051513] border border-[rgba(169,191,165,0.3)] rounded-[2px] text-[#E8E9D8] text-xs focus:outline-none focus:border-[#A9BFA5] transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-[#A9BFA5] mb-1">Opening hours</label>
+                <input
+                  type="text"
+                  value={businessHours}
+                  onChange={(e) => setBusinessHours(e.target.value)}
+                  placeholder="Mon–Sat, 9am–7pm"
+                  className="w-full px-3 py-2 bg-[#051513] border border-[rgba(169,191,165,0.3)] rounded-[2px] text-[#E8E9D8] text-xs focus:outline-none focus:border-[#A9BFA5] transition-colors"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] uppercase tracking-wider text-[#A9BFA5] mb-1">Address</label>
+                <input
+                  type="text"
+                  value={businessAddress}
+                  onChange={(e) => setBusinessAddress(e.target.value)}
+                  placeholder="Street, area, city"
+                  className="w-full px-3 py-2 bg-[#051513] border border-[rgba(169,191,165,0.3)] rounded-[2px] text-[#E8E9D8] text-xs focus:outline-none focus:border-[#A9BFA5] transition-colors"
+                />
+              </div>
+            </div>
+
+            {autoFillNote && (
+              <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs rounded-[2px]">
+                {autoFillNote}
+              </div>
+            )}
+            {stepError && (
+              <div className="p-2.5 bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs rounded-[2px]" role="alert">
+                {stepError}
+              </div>
+            )}
+
+            {/* Actions: [Continue →] */}
             <div className="flex items-center justify-end space-x-3 pt-4 border-t border-[rgba(169,191,165,0.2)]">
               <button
                 type="button"
-                onClick={() => setCurrentStep('channels')}
-                className="px-4 py-2 text-xs text-[#A9BFA5] hover:text-[#E8E9D8] transition-colors cursor-pointer"
-              >
-                [Skip for now]
-              </button>
-              <button
-                type="button"
-                onClick={() => setCurrentStep('channels')}
+                disabled={isAutoFilling || isUploading}
+                onClick={handleBusinessContinue}
                 className="px-5 py-2 bg-[#E8E9D8] text-[#071C1A] hover:bg-white font-bold text-xs uppercase tracking-wider rounded-[2px] transition-all cursor-pointer flex items-center space-x-1.5"
               >
                 <span>Continue</span>
@@ -631,6 +832,9 @@ export default function OnboardingFlow({
               <p className="text-xs text-[#E8E9D8] font-medium">
                 Where do your customers reach you?
               </p>
+              <p className="text-[11px] text-[#A9BFA5]/80 font-light mt-1">
+                Pick what you plan to use. You'll securely connect each account from Channels once setup is done.
+              </p>
             </div>
 
             {/* Channels Grid matching wireframe cards */}
@@ -659,7 +863,7 @@ export default function OnboardingFlow({
                       : 'bg-[#0D2D2A] text-[#E8E9D8] hover:bg-[#123E3A]'
                   }`}
                 >
-                  {connectedChannels.whatsapp ? 'Connected ✓' : '[Connect]'}
+                  {connectedChannels.whatsapp ? 'Selected ✓' : '[Select]'}
                 </button>
               </div>
 
@@ -687,7 +891,7 @@ export default function OnboardingFlow({
                       : 'bg-[#0D2D2A] text-[#E8E9D8] hover:bg-[#123E3A]'
                   }`}
                 >
-                  {connectedChannels.instagram ? 'Connected ✓' : '[Connect]'}
+                  {connectedChannels.instagram ? 'Selected ✓' : '[Select]'}
                 </button>
               </div>
 
@@ -715,7 +919,7 @@ export default function OnboardingFlow({
                       : 'bg-[#0D2D2A] text-[#E8E9D8] hover:bg-[#123E3A]'
                   }`}
                 >
-                  {connectedChannels.facebook ? 'Connected ✓' : '[Connect]'}
+                  {connectedChannels.facebook ? 'Selected ✓' : '[Select]'}
                 </button>
               </div>
 
@@ -743,7 +947,7 @@ export default function OnboardingFlow({
                       : 'bg-[#0D2D2A] text-[#E8E9D8] hover:bg-[#123E3A]'
                   }`}
                 >
-                  {connectedChannels.email ? 'Connected ✓' : '[Connect]'}
+                  {connectedChannels.email ? 'Selected ✓' : '[Select]'}
                 </button>
               </div>
             </div>
@@ -752,7 +956,7 @@ export default function OnboardingFlow({
             <div className="flex items-center justify-between pt-4 border-t border-[rgba(169,191,165,0.2)]">
               <button
                 type="button"
-                onClick={() => setCurrentStep('business')}
+                onClick={() => goTo('business')}
                 className="inline-flex items-center space-x-1 text-xs text-[#A9BFA5] hover:text-[#E8E9D8] transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
@@ -762,14 +966,14 @@ export default function OnboardingFlow({
               <div className="flex items-center space-x-3">
                 <button
                   type="button"
-                  onClick={() => setCurrentStep('ai-basics')}
+                  onClick={() => goTo('ai-basics')}
                   className="px-3 py-2 text-xs text-[#A9BFA5] hover:text-[#E8E9D8] transition-colors cursor-pointer"
                 >
                   [Skip for now]
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCurrentStep('ai-basics')}
+                  onClick={() => goTo('ai-basics')}
                   className="px-5 py-2 bg-[#E8E9D8] text-[#071C1A] hover:bg-white font-bold text-xs uppercase tracking-wider rounded-[2px] transition-all cursor-pointer flex items-center space-x-1.5"
                 >
                   <span>Continue</span>
@@ -808,6 +1012,26 @@ export default function OnboardingFlow({
             </div>
 
             <div className="space-y-4 text-xs">
+              {/* Assistant name — customers see this in every conversation */}
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-[#A9BFA5] mb-1">
+                  Assistant name
+                </label>
+                <input
+                  type="text"
+                  value={botName}
+                  maxLength={40}
+                  onChange={(e) => setBotName(e.target.value)}
+                  placeholder="Ava"
+                  className="w-full px-3 py-2 bg-[#051513] border border-[rgba(169,191,165,0.3)] rounded-[2px] text-[#E8E9D8] text-xs focus:outline-none focus:border-[#A9BFA5] transition-colors"
+                />
+                {learned?.voiceTone && (
+                  <p className="mt-1.5 text-[10px] text-emerald-300/80 leading-snug">
+                    Your site's own voice was learned and will be blended with the tone you pick below.
+                  </p>
+                )}
+              </div>
+
               {/* Tone Selection: [Professional] [Friendly ✓] [Premium] [Conversational] */}
               <div>
                 <label className="block text-[11px] uppercase tracking-wider text-[#A9BFA5] mb-2">
@@ -835,7 +1059,7 @@ export default function OnboardingFlow({
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-[11px] uppercase tracking-wider text-[#A9BFA5]">
-                    Top questions customers ask (add 3)
+                    Top questions customers ask — the assistant answers these exactly
                   </label>
                   <button
                     type="button"
@@ -911,6 +1135,19 @@ export default function OnboardingFlow({
                     <span>AI isn't sure</span>
                   </label>
 
+                  <div className="pt-1 font-sans">
+                    <label className="block text-[11px] uppercase tracking-wider text-[#A9BFA5] mb-1">
+                      Send handoffs to (email)
+                    </label>
+                    <input
+                      type="email"
+                      value={handoffEmail}
+                      onChange={(e) => setHandoffEmail(e.target.value)}
+                      placeholder="sales@yourbusiness.com"
+                      className="w-full px-3 py-2 bg-[#051513] border border-[rgba(169,191,165,0.3)] rounded-[2px] text-[#E8E9D8] text-xs focus:outline-none focus:border-[#A9BFA5] transition-colors"
+                    />
+                  </div>
+
                   <div className="flex items-center space-x-2 text-[#E8E9D8]">
                     <input
                       type="checkbox"
@@ -933,11 +1170,17 @@ export default function OnboardingFlow({
               </div>
             </div>
 
+            {stepError && (
+              <div className="p-2.5 bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs rounded-[2px]" role="alert">
+                {stepError}
+              </div>
+            )}
+
             {/* Actions: ← Back on left | [Finish setup ✓] on right */}
             <div className="flex items-center justify-between pt-4 border-t border-[rgba(169,191,165,0.2)]">
               <button
                 type="button"
-                onClick={() => setCurrentStep('channels')}
+                onClick={() => goTo('channels')}
                 className="inline-flex items-center space-x-1 text-xs text-[#A9BFA5] hover:text-[#E8E9D8] transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
@@ -947,11 +1190,12 @@ export default function OnboardingFlow({
               <button
                 type="button"
                 id="finish-setup-btn"
-                onClick={handleFinish}
-                className="px-6 py-2.5 bg-[#E8E9D8] text-[#071C1A] hover:bg-white font-bold text-xs uppercase tracking-wider rounded-[2px] transition-all cursor-pointer flex items-center space-x-2 shadow-md"
+                disabled={busy}
+                onClick={() => void handleFinish()}
+                className="px-6 py-2.5 bg-[#E8E9D8] text-[#071C1A] hover:bg-white disabled:opacity-60 disabled:cursor-wait font-bold text-xs uppercase tracking-wider rounded-[2px] transition-all cursor-pointer flex items-center space-x-2 shadow-md"
               >
-                <span>Finish setup</span>
-                <Check className="w-4 h-4 stroke-[2.5]" />
+                <span>{busy ? 'Saving…' : 'Finish setup'}</span>
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4 stroke-[2.5]" />}
               </button>
             </div>
           </div>

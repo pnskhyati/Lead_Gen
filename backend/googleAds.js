@@ -151,6 +151,7 @@ async function ingestLeadForm(vertex, leadAgent, normalized, { runAgent = true }
           message: normalized.customerComment,
           history: [],
           visitorName: normalized.author,
+          channel: 'google_ads',
           previousScore: lead.score ?? 0,
         });
         lead = await leadsCrm.upsertLead({

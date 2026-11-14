@@ -211,26 +211,26 @@ export async function loadSeoGeoRecommendations(): Promise<SeoGeoRecommendations
 export function categoryLabel(category: SeoGeoCategory): string {
   switch (category) {
     case 'technical_seo':
-      return 'Google Search';
+      return 'Google search';
     case 'local_seo':
-      return 'Local SEO';
+      return 'Local search';
     default:
-      return 'Generative (GEO)';
+      return 'AI answers';
   }
 }
 
 export function statusLabel(status: RecommendationStatus): string {
   switch (status) {
     case 'in_progress':
-      return 'In progress';
+      return 'Working on it';
     case 'needs_verification':
-      return 'Needs verification';
+      return 'Check again';
     case 'verified':
-      return 'Verified';
+      return 'Done';
     case 'dismissed':
-      return 'Dismissed';
+      return 'Ignored';
     default:
-      return 'Open';
+      return 'To do';
   }
 }
 
@@ -270,11 +270,27 @@ export interface SeoGeoKeyword {
 export interface SeoGeoRankSnapshot {
   keywordId: string;
   keyword: string;
-  source: string;
-  position: number | null;
-  url: string | null;
   runAt: string;
-  note?: string;
+  /** average Google position over the last 28 days, or null when Google has no data */
+  currentPosition: number | null;
+  previousPosition: number | null;
+  /** positive = moved up */
+  change: number | null;
+  impressions: number | null;
+  clicks: number | null;
+  note?: string | null;
+  error?: boolean;
+}
+
+export interface SeoGeoCitationRun {
+  id: string;
+  runAt: string;
+  error?: string;
+  answerExcerpt?: string;
+  sources?: { site: string | null }[];
+  searched?: boolean;
+  brandMentioned?: boolean;
+  domainCited?: boolean;
 }
 
 export interface SeoGeoGeoPrompt {
@@ -313,6 +329,62 @@ export async function getSeoGeoCrawlJob(id: string): Promise<SeoGeoCrawlJob> {
     credentials: 'include',
   });
   return parse(res);
+}
+
+export interface SeoGeoSuggestion {
+  text: string;
+  why: string;
+  intent: 'buy' | 'compare' | 'learn';
+}
+
+/** AI ideas for what to track: search phrases (Google) or customer questions (AI assistants). */
+export async function suggestSeoGeo(kind: 'keywords' | 'questions'): Promise<SeoGeoSuggestion[]> {
+  const res = await fetch(`${API_BASE}/api/seo-geo/suggestions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ kind }),
+  });
+  const data: { suggestions: SeoGeoSuggestion[] } = await parse(res);
+  return data.suggestions;
+}
+
+export interface SeoGeoPage {
+  id: string;
+  topic: string;
+  kind: 'keyword' | 'question';
+  createdAt: string;
+  title: string;
+  metaDescription: string;
+  slug: string;
+  h1: string;
+  directAnswer: string;
+  needsInput: string[];
+  /** numbers in the draft that are not in the business facts; the owner must check them */
+  checkNumbers: string[];
+  html: string;
+  markdown: string;
+  schema: string;
+}
+
+export async function writeSeoGeoPage(topic: string, kind: 'keyword' | 'question'): Promise<SeoGeoPage> {
+  const res = await fetch(`${API_BASE}/api/seo-geo/pages/write`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ topic, kind }),
+  });
+  return parse(res);
+}
+
+export async function listSeoGeoPages(): Promise<SeoGeoPage[]> {
+  const res = await fetch(`${API_BASE}/api/seo-geo/pages`, { credentials: 'include' });
+  return parse(res);
+}
+
+export async function deleteSeoGeoPage(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/seo-geo/pages/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
+  await parse(res);
 }
 
 export async function getSeoGeoKeywords(): Promise<SeoGeoKeyword[]> {
@@ -403,11 +475,14 @@ export async function getSeoGeoVertexStatus(): Promise<{
 
 export async function getSeoGeoCitationDashboard(): Promise<{
   totalRuns: number;
+  promptsMentioned: number;
+  mentionRate: number;
   promptsCitingSite: number;
   citationRate: number;
-  uniqueCitedPages: number;
   disclaimer: string;
-  prompts: { prompt: SeoGeoGeoPrompt; recentRuns: unknown[] }[];
+  /** sites the AI relied on for your questions (not your own), most-used first */
+  topSources: { site: string; questions: number }[];
+  prompts: { prompt: SeoGeoGeoPrompt; recentRuns: SeoGeoCitationRun[] }[];
 }> {
   const res = await fetch(`${API_BASE}/api/seo-geo/citations/dashboard`, { credentials: 'include' });
   return parse(res);

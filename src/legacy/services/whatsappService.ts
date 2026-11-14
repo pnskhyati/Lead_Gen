@@ -3,6 +3,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 export interface WhatsAppStatus {
   configured: boolean;
   phoneNumberId: string | null;
+  displayPhoneNumber?: string | null;
   businessAccountId: string | null;
 }
 
@@ -18,8 +19,33 @@ export async function getWhatsAppStatus(): Promise<WhatsAppStatus> {
   return {
     configured: Boolean(payload.configured),
     phoneNumberId: payload.phoneNumberId ?? null,
+    displayPhoneNumber: payload.displayPhoneNumber ?? null,
     businessAccountId: payload.businessAccountId ?? null,
   };
+}
+
+/** Connect this workspace's own WhatsApp Business number. The server validates the token with Meta before saving it. */
+export async function connectWhatsApp(creds: {
+  token: string;
+  phoneNumberId: string;
+  businessAccountId?: string;
+}): Promise<WhatsAppStatus> {
+  const res = await fetch(`${API_BASE}/api/whatsapp/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(creds),
+  });
+  const json = await parseJson(res);
+  if (!res.ok || json.success === false) throw new Error(json.error || 'Could not connect WhatsApp');
+  return json.data as WhatsAppStatus;
+}
+
+export async function disconnectWhatsApp(): Promise<WhatsAppStatus> {
+  const res = await fetch(`${API_BASE}/api/whatsapp/config`, { method: 'DELETE', credentials: 'include' });
+  const json = await parseJson(res);
+  if (!res.ok || json.success === false) throw new Error(json.error || 'Could not disconnect WhatsApp');
+  return json.data as WhatsAppStatus;
 }
 
 export async function sendWhatsAppMessage(to: string, text: string): Promise<unknown> {

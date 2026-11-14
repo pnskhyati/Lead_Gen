@@ -11,7 +11,7 @@ const { enrichWithContentAi } = require('./contentAi');
 function loadDocumentBodies() {
   const path = require('path');
   const fs = require('fs');
-  const docStorePath = path.join(__dirname, '..', 'data', 'company', 'documents.json');
+  const docStorePath = require('../workspaceData').companyPath('documents.json');
   try {
     const raw = JSON.parse(fs.readFileSync(docStorePath, 'utf8'));
     return (raw.documents || []).map((d) => String(d.text || '')).filter(Boolean);

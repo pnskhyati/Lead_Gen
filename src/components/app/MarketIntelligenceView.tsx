@@ -47,10 +47,10 @@ export default function MarketIntelligenceView({ onNavigate }: MarketIntelligenc
           {
             type: 'Content advisor',
             title: 'Rewrite with competitor context',
-            desc: 'Use analysis output in Content Studio drafts.',
-            action: 'Content Studio →',
+            desc: 'Use the analysis when planning your posts.',
+            action: 'Content Planner →',
             cat: 'content' as NavCategory,
-            sub: 'create' as SubCategory,
+            sub: 'schedule' as SubCategory,
           },
           {
             type: 'Outcomes',

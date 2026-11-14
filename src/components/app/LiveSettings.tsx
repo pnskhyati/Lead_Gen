@@ -2,14 +2,12 @@ import React from 'react';
 import type { NavCategory, SubCategory } from '../../types';
 import TecavyPageHead from './TecavyPageHead';
 import AdminView from './AdminView';
-import ChannelsView from './ChannelsView';
 
-export type SettingsSection = 'business' | 'knowledge' | 'channels' | 'automation' | 'team' | 'notifications';
+export type SettingsSection = 'business' | 'knowledge' | 'automation' | 'team' | 'notifications';
 
 const SECTIONS: { id: SettingsSection; label: string; sub: SubCategory }[] = [
   { id: 'business', label: 'Business', sub: 'business' },
   { id: 'knowledge', label: 'AI Knowledge', sub: 'ai-knowledge' },
-  { id: 'channels', label: 'Connections', sub: 'connections' },
   { id: 'automation', label: 'Automation', sub: 'automation' },
   { id: 'team', label: 'Team', sub: 'team' },
   { id: 'notifications', label: 'Notifications', sub: 'notifications' },
@@ -18,7 +16,6 @@ const SECTIONS: { id: SettingsSection; label: string; sub: SubCategory }[] = [
 function mapSubToSection(sub: SubCategory): SettingsSection {
   if (sub === 'audit') return 'knowledge';
   if (sub === 'ai-knowledge' || sub === 'brand') return 'knowledge';
-  if (sub === 'connections' || sub === 'connect') return 'channels';
   if (sub === 'automation' || sub === 'ai-automation' || sub === 'lead-automation') return 'automation';
   if (sub === 'team' || sub === 'team-access') return 'team';
   if (sub === 'notifications') return 'notifications';
@@ -46,7 +43,7 @@ export default function LiveSettings({
       <TecavyPageHead
         label="Workspace / Settings"
         title="Settings"
-        description="Configure your business, connected channels, and agent boundaries — backed by live company APIs."
+        description="Configure your business, AI knowledge, and agent boundaries — backed by live company APIs."
       />
 
       <div className="tx-settingslayout">
@@ -68,18 +65,14 @@ export default function LiveSettings({
             <div>
               <h2>{sectionMeta.label}</h2>
               <p>
-                {section === 'channels'
-                  ? 'All app connections — social, messaging, Google, SEO/GEO, and AI.'
-                  : section === 'team' || section === 'notifications'
-                    ? 'Workspace controls — use Admin audit and profile for live team data where available.'
-                    : 'Live profile, documents, voice, and automation from the Nexora backend.'}
+                {section === 'team' || section === 'notifications'
+                  ? 'Workspace controls — use Admin audit and profile for live team data where available.'
+                  : 'Live profile, documents, voice, and automation from the Nexora backend.'}
               </p>
             </div>
           </div>
 
-          {section === 'channels' ? (
-            <ChannelsView onNavigate={onNavigate} />
-          ) : section === 'team' ? (
+          {section === 'team' ? (
             <div className="space-y-3 text-sm text-[var(--tx-muted)]">
               <p>Team invites and roles are managed through your workspace admin. Open audit log for agent activity.</p>
               <button

@@ -1,23 +1,24 @@
 const fs = require('fs');
 const path = require('path');
+const wsData = require('../workspaceData');
 const crypto = require('crypto');
 const axios = require('axios');
 
-const FIXES_PATH = path.join(__dirname, '..', 'data', 'company', 'seo-geo-fixes.json');
+const FIXES_PATH = () => wsData.companyPath('seo-geo-fixes.json');
 
 const WP_URL = process.env.WORDPRESS_SITE_URL || '';
 const WP_USER = process.env.WORDPRESS_APP_USER || '';
 const WP_PASS = process.env.WORDPRESS_APP_PASSWORD || '';
 
 function ensureDir() {
-  const dir = path.dirname(FIXES_PATH);
+  const dir = path.dirname(FIXES_PATH());
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
 function readFixes() {
   ensureDir();
   try {
-    return JSON.parse(fs.readFileSync(FIXES_PATH, 'utf8')).fixes || {};
+    return JSON.parse(fs.readFileSync(FIXES_PATH(), 'utf8')).fixes || {};
   } catch {
     return {};
   }
@@ -25,7 +26,7 @@ function readFixes() {
 
 function writeFixes(fixes) {
   ensureDir();
-  fs.writeFileSync(FIXES_PATH, JSON.stringify({ fixes, updatedAt: new Date().toISOString() }, null, 2));
+  fs.writeFileSync(FIXES_PATH(), JSON.stringify({ fixes, updatedAt: new Date().toISOString() }, null, 2));
 }
 
 function isWordPressConfigured() {

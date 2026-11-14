@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const workspaceContext = require('./workspaceContext');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const AUDIT_PATH = path.join(DATA_DIR, 'agent-audit.jsonl');
@@ -17,7 +18,7 @@ function appendAudit(event) {
   ensureDir();
   const row = {
     event_id: event.event_id || `evt-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
-    organization_id: event.organization_id || 'default',
+    organization_id: event.organization_id || workspaceContext.current(),
     actor_type: event.actor_type || 'agent',
     actor_id: event.actor_id || null,
     agent_name: event.agent_name || 'Tecavy Engagement Agent',
@@ -42,21 +43,22 @@ function appendAudit(event) {
   return row;
 }
 
+/** Recent audit events for the current workspace (legacy rows without an organization belong to "default"). */
 function recentAudits(limit = 50) {
   ensureDir();
   if (!fs.existsSync(AUDIT_PATH)) return [];
+  const ws = workspaceContext.current();
   const lines = fs.readFileSync(AUDIT_PATH, 'utf8').trim().split('\n').filter(Boolean);
-  return lines
-    .slice(-limit)
-    .map((l) => {
-      try {
-        return JSON.parse(l);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean)
-    .reverse();
+  const rows = [];
+  for (let i = lines.length - 1; i >= 0 && rows.length < limit; i -= 1) {
+    try {
+      const row = JSON.parse(lines[i]);
+      if ((row.organization_id || workspaceContext.DEFAULT_WORKSPACE) === ws) rows.push(row);
+    } catch {
+      /* skip corrupt line */
+    }
+  }
+  return rows;
 }
 
 module.exports = { appendAudit, recentAudits, AUDIT_PATH };

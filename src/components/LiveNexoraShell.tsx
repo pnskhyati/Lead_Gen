@@ -8,8 +8,11 @@ import AppTopBar from './app/AppTopBar';
 import CommandPalette from './app/CommandPalette';
 import ChannelsView from './app/ChannelsView';
 import LiveOverview from './app/LiveOverview';
+import SeoGeoPanel from './app/SeoGeoPanel';
+import AutoReplyView from './app/AutoReplyView';
 import LiveInbox from './app/LiveInbox';
 import LiveContent from './app/LiveContent';
+import ContentPlannerView from './app/planner/ContentPlannerView';
 import LiveCampaigns from './app/LiveCampaigns';
 import AgentsView from './app/AgentsView';
 import AdminView from './app/AdminView';
@@ -42,7 +45,7 @@ function defaultSub(category: NavCategory): SubCategory {
     case 'leads':
       return 'all-leads';
     case 'content':
-      return 'create';
+      return 'schedule';
     case 'campaigns':
       return 'campaign-list';
     case 'analytics':
@@ -61,6 +64,9 @@ function defaultSub(category: NavCategory): SubCategory {
       return 'lead-growth';
     case 'intelligence':
       return 'competitor';
+    case 'seo':
+    case 'autoreply':
+      return 'overview';
     default:
       return 'default';
   }
@@ -80,6 +86,8 @@ function tecavyPageTitle(category: NavCategory, sub: SubCategory): string {
     campaigns: 'Campaigns',
     analytics: 'Analytics',
     intelligence: 'Market Intelligence',
+    seo: 'SEO / GEO',
+    autoreply: 'Auto-reply',
     connections: 'Connections',
     settings: 'Settings',
   };
@@ -97,7 +105,9 @@ export default function LiveNexoraShell({
   const isLight = theme === 'light';
   const chatRef = useRef<FloatingChatHandle>(null);
 
-  const [activeCategory, setActiveCategory] = useState<NavCategory>('overview');
+  // Coming back from Google's sign-in lands on /seo, so open that tab instead of Overview.
+  const startOnSeo = typeof window !== 'undefined' && window.location.pathname.replace(/^\//, '').split('/')[0] === 'seo';
+  const [activeCategory, setActiveCategory] = useState<NavCategory>(startOnSeo ? 'seo' : 'overview');
   const [activeSubCategory, setActiveSubCategory] = useState<SubCategory>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -136,13 +146,17 @@ export default function LiveNexoraShell({
     } else if (category === 'assistant') {
       chatRef.current?.open();
       return;
-    } else if (category === 'channels') {
-      targetCategory = 'settings';
-      targetSub = targetSub || 'connections';
+    } else if (category === 'channels' || (category === 'settings' && (subCategory === 'connections' || subCategory === 'connect'))) {
+      // One Connections page only: the button above Settings.
+      targetCategory = 'channels';
+      targetSub = 'connections';
     } else if (category === 'admin') {
       targetCategory = 'settings';
       targetSub = targetSub || 'brand';
     }
+
+    // Content Studio and the library were removed: everything in Content now opens the planner (the LinkedIn hub stays).
+    if (targetCategory === 'content' && targetSub !== 'linkedin-studio') targetSub = 'schedule';
 
     const resolvedSub = targetSub || defaultSub(targetCategory);
     setActiveCategory(targetCategory);
@@ -292,6 +306,32 @@ export default function LiveNexoraShell({
       return <MarketIntelligenceView onNavigate={handleSelectNav} />;
     }
 
+    if (activeCategory === 'autoreply') {
+      return (
+        <div className="flex flex-col gap-4">
+          <TecavyPageHead
+            label="Workspace / Auto-reply"
+            title="Auto-reply"
+            description="Answer comments and messages on Instagram, Facebook and X for you, with you in control."
+          />
+          <AutoReplyView />
+        </div>
+      );
+    }
+
+    if (activeCategory === 'seo') {
+      return (
+        <div className="flex flex-col gap-4">
+          <TecavyPageHead
+            label="Marketing / SEO / GEO"
+            title="SEO / GEO"
+            description="Get found on Google and named by AI tools, so more people who are ready to buy reach you."
+          />
+          <SeoGeoPanel variant="overview" onNavigate={handleSelectNav} />
+        </div>
+      );
+    }
+
     if (activeCategory === 'inbox' || activeCategory === 'engage') {
       return (
         <div className="flex flex-col flex-1 min-h-0 gap-2">
@@ -356,6 +396,18 @@ export default function LiveNexoraShell({
               incomingBrief={linkedinBrief}
               onDraftsConsumed={handleDraftsConsumed}
             />
+          </div>
+        );
+      }
+      if (activeSubCategory === 'schedule') {
+        return (
+          <div className="flex flex-col gap-4">
+            <TecavyPageHead
+              label="Marketing / Content / Planner"
+              title="Content planner"
+              description="One prompt builds a calendar of platform-specific posts and images. You review and approve; we publish on schedule."
+            />
+            <ContentPlannerView isAdmin={isAdmin} onNotify={showToast} onOpenChannels={() => handleSelectNav('channels', 'connections')} />
           </div>
         );
       }

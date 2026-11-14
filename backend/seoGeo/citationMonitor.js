@@ -1,19 +1,20 @@
 const fs = require('fs');
 const path = require('path');
+const wsData = require('../workspaceData');
 const crypto = require('crypto');
 
-const PROMPTS_PATH = path.join(__dirname, '..', 'data', 'company', 'seo-geo-geo-prompts.json');
-const RUNS_PATH = path.join(__dirname, '..', 'data', 'company', 'seo-geo-citation-runs.json');
+const PROMPTS_PATH = () => wsData.companyPath('seo-geo-geo-prompts.json');
+const RUNS_PATH = () => wsData.companyPath('seo-geo-citation-runs.json');
 
 function ensureDir() {
-  const dir = path.dirname(PROMPTS_PATH);
+  const dir = path.dirname(PROMPTS_PATH());
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
 function readPrompts() {
   ensureDir();
   try {
-    return JSON.parse(fs.readFileSync(PROMPTS_PATH, 'utf8')).prompts || [];
+    return JSON.parse(fs.readFileSync(PROMPTS_PATH(), 'utf8')).prompts || [];
   } catch {
     return [];
   }
@@ -21,13 +22,13 @@ function readPrompts() {
 
 function writePrompts(prompts) {
   ensureDir();
-  fs.writeFileSync(PROMPTS_PATH, JSON.stringify({ prompts, updatedAt: new Date().toISOString() }, null, 2));
+  fs.writeFileSync(PROMPTS_PATH(), JSON.stringify({ prompts, updatedAt: new Date().toISOString() }, null, 2));
 }
 
 function readRuns() {
   ensureDir();
   try {
-    return JSON.parse(fs.readFileSync(RUNS_PATH, 'utf8')).runs || [];
+    return JSON.parse(fs.readFileSync(RUNS_PATH(), 'utf8')).runs || [];
   } catch {
     return [];
   }
@@ -36,7 +37,7 @@ function readRuns() {
 function appendRuns(newRuns) {
   const runs = [...newRuns, ...readRuns()].slice(0, 2000);
   ensureDir();
-  fs.writeFileSync(RUNS_PATH, JSON.stringify({ runs, updatedAt: new Date().toISOString() }, null, 2));
+  fs.writeFileSync(RUNS_PATH(), JSON.stringify({ runs, updatedAt: new Date().toISOString() }, null, 2));
   return runs;
 }
 
@@ -79,16 +80,20 @@ async function runPromptTest(vertex, promptRow) {
   const domain = domainFromWebsite(profile.websiteUrl || '');
   const company = profile.companyName || 'the business';
 
-  let text;
+  let sample;
   try {
-    text = await ai.runGeoCitationSample(promptRow.prompt, { companyName: company, domain });
+    sample = await ai.runGeoCitationSample(promptRow.prompt);
   } catch (err) {
     const formatted = ai.formatVertexError ? ai.formatVertexError(err) : err.message;
     throw new Error(formatted);
   }
+  const { text, sources, queries, searched } = sample;
 
+  // The search sources are redirect links whose title is the site's domain, so check both fields.
+  const hostOf = (s) => String(s.title || '').toLowerCase().replace(/^www\./, '');
+  const sourceHit = domain ? sources.some((s) => hostOf(s) === domain || hostOf(s).endsWith(`.${domain}`) || s.uri.includes(domain)) : false;
   const citedUrls = extractUrls(text);
-  const domainCited = domain ? citedUrls.some((u) => u.includes(domain)) : false;
+  const domainCited = domain ? sourceHit || citedUrls.some((u) => u.includes(domain)) : false;
   const brandMentioned = company.length > 2 && new RegExp(`\\b${company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text);
 
   return {
@@ -97,11 +102,14 @@ async function runPromptTest(vertex, promptRow) {
     prompt: promptRow.prompt,
     runAt: new Date().toISOString(),
     answerExcerpt: String(text).slice(0, 1200),
+    sources: sources.slice(0, 12).map((s) => ({ site: s.title || null })),
+    searchQueries: queries.slice(0, 5),
+    searched,
     citedUrls,
     domainCited,
     brandMentioned,
     sampledObservation: true,
-    disclaimer: 'Sampled AI response — answers vary by model, time, and platform.',
+    disclaimer: 'One live answer from Gemini with Google Search. Other AI tools and other days can differ.',
   };
 }
 
@@ -135,28 +143,34 @@ function getCitationDashboard() {
     byPrompt[r.promptId].push(r);
   }
 
+  // Headline numbers use only the newest answer for each question, so old runs do not blur the current picture.
   let totalRuns = 0;
-  let citingRuns = 0;
-  const citedPages = new Set();
-
-  for (const r of runs) {
-    if (r.error) continue;
+  let mentioned = 0;
+  let linked = 0;
+  const ownDomain = domainFromWebsite(require('../companyKnowledge').getProfile().websiteUrl || '');
+  const siteCounts = new Map();
+  for (const p of prompts) {
+    const latest = (byPrompt[p.id] || []).find((r) => !r.error);
+    if (!latest) continue;
     totalRuns += 1;
-    if (r.domainCited) citingRuns += 1;
-    for (const u of r.citedUrls || []) {
-      const profile = require('../companyKnowledge').getProfile();
-      const domain = domainFromWebsite(profile.websiteUrl || '');
-      if (domain && u.includes(domain)) citedPages.add(u);
+    if (latest.brandMentioned || latest.domainCited) mentioned += 1;
+    if (latest.domainCited) linked += 1;
+    for (const site of new Set((latest.sources || []).map((s) => String(s.site || '').toLowerCase().replace(/^www\./, '')).filter(Boolean))) {
+      if (ownDomain && (site === ownDomain || site.endsWith(`.${ownDomain}`))) continue;
+      siteCounts.set(site, (siteCounts.get(site) || 0) + 1);
     }
   }
+  const topSources = [...siteCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([site, questions]) => ({ site, questions }));
 
   return {
     promptsTested: prompts.length,
     totalRuns,
-    promptsCitingSite: citingRuns,
-    citationRate: totalRuns ? Math.round((citingRuns / totalRuns) * 1000) / 10 : 0,
-    uniqueCitedPages: citedPages.size,
-    disclaimer: 'Illustrative sampled observations — not universal AI visibility.',
+    promptsMentioned: mentioned,
+    promptsCitingSite: linked,
+    mentionRate: totalRuns ? Math.round((mentioned / totalRuns) * 100) : 0,
+    citationRate: totalRuns ? Math.round((linked / totalRuns) * 100) : 0,
+    topSources,
+    disclaimer: 'One live answer per question from Gemini with Google Search. Other AI tools and other days can differ.',
     prompts: prompts.map((p) => ({
       prompt: p,
       recentRuns: (byPrompt[p.id] || []).slice(0, 5),

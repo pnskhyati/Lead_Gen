@@ -12,7 +12,9 @@ function startSeoGeoScheduler({ vertex } = {}) {
   if (cron.validate(rankCron)) {
     cron.schedule(rankCron, () => {
       const rankTracking = require('./rankTracking');
-      void rankTracking.syncRankings().catch((err) => console.warn('[SEO/GEO scheduler] rank', err.message));
+      void require('../workspaceData')
+        .forEachWorkspace(() => rankTracking.syncRankings())
+        .catch((err) => console.warn('[SEO/GEO scheduler] rank', err.message));
     });
   }
 
@@ -20,7 +22,9 @@ function startSeoGeoScheduler({ vertex } = {}) {
     cron.schedule(citationCron, () => {
       const citationMonitor = require('./citationMonitor');
       if (!vertex) return;
-      void citationMonitor.runAllCitationTests(vertex).catch((err) => console.warn('[SEO/GEO scheduler] geo', err.message));
+      void require('../workspaceData')
+        .forEachWorkspace(() => citationMonitor.runAllCitationTests(vertex))
+        .catch((err) => console.warn('[SEO/GEO scheduler] geo', err.message));
     });
   }
 

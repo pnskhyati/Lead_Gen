@@ -231,7 +231,7 @@ export default function LeadDetailModal({
                 </div>
                 <div>
                   <h4 className={`text-xs font-semibold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                    {lead.assignee?.name || 'Rahul — Sales'}
+                    {lead.assignee?.name || 'Unassigned'}
                   </h4>
                   <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-[#A9BFA5]/70'}`}>
                     {lead.assignee?.role || 'Lead Manager'}

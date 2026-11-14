@@ -76,7 +76,9 @@ async function publishFacebook(post) {
       headers: form.getHeaders(),
       maxBodyLength: Infinity,
     });
-    return { id: data.id || data.post_id, platform: 'facebook' };
+    // A photo post has two ids: the photo, and the post that shows it. The post id is the one with a public link.
+    const postId = data.post_id || data.id;
+    return { id: postId, platform: 'facebook', url: `https://www.facebook.com/${postId}` };
   }
 
   if (media?.absoluteUrl && /^https?:\/\//i.test(media.absoluteUrl) && !media.absoluteUrl.includes('localhost')) {
@@ -87,7 +89,8 @@ async function publishFacebook(post) {
         access_token: account.pageAccessToken,
       },
     });
-    return { id: data.id || data.post_id, platform: 'facebook' };
+    const postId = data.post_id || data.id;
+    return { id: postId, platform: 'facebook', url: `https://www.facebook.com/${postId}` };
   }
 
   const { data } = await axios.post(`${GRAPH}/${account.pageId}/feed`, null, {
@@ -96,8 +99,10 @@ async function publishFacebook(post) {
       access_token: account.pageAccessToken,
     },
   });
-  return { id: data.id, platform: 'facebook' };
+  return { id: data.id, platform: 'facebook', url: `https://www.facebook.com/${data.id}` };
 }
+
+const IG_GRAPH = 'https://graph.instagram.com/v22.0';
 
 async function publishInstagram(post) {
   // Prefer Page-linked IG (Facebook connect); fall back to Instagram Login store
@@ -111,7 +116,9 @@ async function publishInstagram(post) {
         }
       : ig?.authMode === 'facebook_login' && ig?.pageAccessToken
         ? ig
-        : null;
+        : ig?.authMode === 'instagram_login' && ig?.igUserId && ig?.accessToken
+          ? { igUserId: ig.igUserId, pageAccessToken: ig.accessToken, graph: IG_GRAPH }
+          : null;
 
   if (!account?.igUserId || !account?.pageAccessToken) {
     throw new Error(
@@ -133,7 +140,7 @@ async function publishInstagram(post) {
     imageUrl = post.imageUrl;
   }
 
-  const createRes = await axios.post(`${GRAPH}/${account.igUserId}/media`, null, {
+  const createRes = await axios.post(`${account.graph || GRAPH}/${account.igUserId}/media`, null, {
     params: {
       image_url: imageUrl,
       caption,
@@ -146,14 +153,24 @@ async function publishInstagram(post) {
   // Brief wait helps when Meta is still processing the container
   await new Promise((r) => setTimeout(r, 2500));
 
-  const publishRes = await axios.post(`${GRAPH}/${account.igUserId}/media_publish`, null, {
+  const publishRes = await axios.post(`${account.graph || GRAPH}/${account.igUserId}/media_publish`, null, {
     params: {
       creation_id: creationId,
       access_token: account.pageAccessToken,
     },
   });
 
-  return { id: publishRes.data.id, platform: 'instagram' };
+  // The public link is best-effort: the post is already live even if this lookup fails.
+  let url;
+  try {
+    const { data } = await axios.get(`${account.graph || GRAPH}/${publishRes.data.id}`, {
+      params: { fields: 'permalink', access_token: account.pageAccessToken },
+    });
+    url = data.permalink;
+  } catch {
+    url = undefined;
+  }
+  return { id: publishRes.data.id, platform: 'instagram', url };
 }
 
 /**
@@ -173,7 +190,7 @@ async function publishToPlatform(platform, post, { linkedinPublishFn, userUrn })
   if (key === 'linkedin') {
     if (!linkedinPublishFn) throw new Error('LinkedIn publisher unavailable');
     const id = await linkedinPublishFn(post, userUrn);
-    return { id, platform: 'linkedin' };
+    return { id, platform: 'linkedin', url: id ? `https://www.linkedin.com/feed/update/${id}` : undefined };
   }
   if (key === 'facebook') return publishFacebook(post);
   if (key === 'instagram') return publishInstagram(post);
@@ -237,6 +254,7 @@ function serveMedia(app) {
 
 module.exports = {
   publishPostToPlatforms,
+  publishToPlatform,
   publishFacebook,
   publishInstagram,
   materializeImage,

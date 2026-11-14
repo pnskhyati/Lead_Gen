@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import EngageView, { type ConversationItem, type EngageLiveHandlers } from './EngageView';
 import LeadsView from './LeadsView';
 import type { Lead, SubCategory } from '../../types';
@@ -16,6 +16,7 @@ import {
   updateLeadStatus,
 } from '../../legacy/services/leadStore';
 import type { FollowUpQueueItem, LifecyclePipelineSummary } from '../../legacy/types';
+import { approveAutoReply, dismissAutoReply, listAutoReplyItems, type AutoReplyItem } from '../../legacy/services/autoReplyService';
 
 interface LiveInboxProps {
   mode: 'inbox' | 'leads';
@@ -44,6 +45,8 @@ function mapChannel(lead: LegacyLead): ConversationItem['channel'] {
   if (ch.includes('whatsapp')) return 'WhatsApp';
   if (ch.includes('instagram')) return 'Instagram';
   if (ch.includes('linkedin')) return 'LinkedIn';
+  if (ch.includes('facebook') || ch.includes('messenger')) return 'Facebook';
+  if (ch === 'x' || ch.includes('twitter')) return 'X';
   if (ch === 'google_ads' || ch.includes('google ads')) return 'Google Ads';
   return 'Website';
 }
@@ -169,10 +172,11 @@ function toConversation(lead: LegacyLead): ConversationItem {
     temperature,
     intelPill: `${channel} · ${temperature}`,
     whyPoints: whyPoints.length ? whyPoints : ['+ inbound conversation'],
+    // Only what the person actually said counts. Budget and timeline are not collected from chats yet, so they stay empty.
     qualification: {
-      requirement: Boolean(lead.customerComment || lead.intentSummary),
-      budget: '—',
-      timeline: '—',
+      requirement: Boolean(lead.intent && !/^(UNKNOWN|GENERAL_QUERY|GREETING)$/i.test(String(lead.intent))),
+      budget: '',
+      timeline: '',
       decisionMaker: false,
     },
     nextAction: lead.nextBestAction || 'Reply while intent is warm',
@@ -196,6 +200,55 @@ function toConversation(lead: LegacyLead): ConversationItem {
   };
 }
 
+/** Facebook gives times like 2026-11-13T11:49:29+0000; make them a form every browser reads. */
+const fixTime = (t?: string | null) => (t ? t.replace(/([+-][0-9]{2})([0-9]{2})$/, '$1:$2') : t ?? null);
+
+const AR_CHANNEL: Record<AutoReplyItem['platform'], ConversationItem['channel']> = { instagram: 'Instagram', facebook: 'Facebook', x: 'X', linkedin: 'LinkedIn' };
+const AR_KIND: Record<AutoReplyItem['kind'], string> = { comment: 'Comment', dm: 'Message' };
+
+/** A comment or mention on one of our posts, as a conversation: what they wrote and what we answered (or drafted). */
+function arMessages(item: AutoReplyItem): ConversationItem['messages'] {
+  const msgs: ConversationItem['messages'] = [{ id: `${item.id}-in`, sender: 'customer', senderName: item.author || 'Customer', text: item.text, time: relativeShort(item.receivedAt) }];
+  const ours = item.finalText || item.draft;
+  if (ours) {
+    msgs.push({ id: `${item.id}-out`, sender: 'ai', senderName: item.status === 'sent' ? 'AI' : 'AI draft (not sent)', text: ours, time: relativeShort(item.sentAt || item.receivedAt) });
+  }
+  return msgs;
+}
+
+function fromAutoReply(item: AutoReplyItem): ConversationItem {
+  const channel = AR_CHANNEL[item.platform] || 'Website';
+  const waiting = item.status === 'pending_review' || item.status === 'needs_human' || item.status === 'failed';
+  const alertReason =
+    item.status === 'needs_human' ? item.reason || 'This needs a person, so no reply was sent.'
+    : item.status === 'pending_review' ? 'A reply is drafted and waits for your OK. Send it from here.'
+    : item.status === 'failed' ? item.error || 'The reply could not be sent.'
+    : '';
+  return {
+    id: `convo-ar-${item.id}`,
+    name: item.author || 'Someone',
+    company: `${channel} ${AR_KIND[item.kind].toLowerCase()}`,
+    location: '—',
+    time: relativeShort(item.receivedAt),
+    timestampRaw: new Date(item.receivedAt).getTime(),
+    channel,
+    status: waiting ? 'needs_you' : 'ai_handling',
+    snippet: item.text.slice(0, 80),
+    stage: item.status === 'sent' ? 'Replied' : 'New',
+    score: 0,
+    temperature: 'COLD',
+    intelPill: `${channel} · ${item.intent}`,
+    whyPoints: [item.context ? `+ on your post: ${item.context.slice(0, 80)}` : '+ public comment on your post', item.reason ? `+ ${item.reason}` : ''].filter(Boolean),
+    qualification: { requirement: false, budget: '', timeline: '', decisionMaker: false },
+    nextAction: waiting ? 'Review and send the reply' : 'Replied',
+    aiAlert: waiting ? { isPaused: true, reason: alertReason, confidence: 'medium' } : undefined,
+    messages: arMessages(item),
+    assignedTo: waiting ? 'You' : 'AI',
+    leadReferenceId: `ar:${item.id}`,
+    waitingForHuman: waiting,
+  };
+}
+
 export default function LiveInbox({
   mode,
   activeSubCategory,
@@ -208,13 +261,25 @@ export default function LiveInbox({
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [followUpQueue, setFollowUpQueue] = useState<FollowUpQueueItem[]>([]);
   const [lifecycleSummary, setLifecycleSummary] = useState<LifecyclePipelineSummary | null>(null);
+  const [arItems, setArItems] = useState<AutoReplyItem[]>([]);
+  const arRef = useRef<AutoReplyItem[]>([]);
 
   const refresh = useCallback(async () => {
     try {
       const list = await fetchLeads();
-      setLegacyLeads(list.length ? list : getLeads());
+      setLegacyLeads(list);
     } catch {
       setLegacyLeads(getLeads());
+    }
+    try {
+      // Comments and mentions on our posts, read from the connected platforms by the auto-reply checker.
+      const items = (await listAutoReplyItems())
+        .filter((i) => i.status !== 'skipped' && i.status !== 'dismissed')
+        .map((i) => ({ ...i, receivedAt: fixTime(i.receivedAt) || i.receivedAt, sentAt: fixTime(i.sentAt) }));
+      arRef.current = items;
+      setArItems(items);
+    } catch {
+      /* keep what we had */
     }
     try {
       const { queue, summary } = await fetchFollowUpQueue();
@@ -240,8 +305,8 @@ export default function LiveInbox({
   }, [refresh]);
 
   const seedConversations = useMemo(
-    () => legacyLeads.map(toConversation),
-    [legacyLeads]
+    () => [...legacyLeads.map(toConversation), ...arItems.map(fromAutoReply)].sort((a, b) => (b.timestampRaw || 0) - (a.timestampRaw || 0)),
+    [legacyLeads, arItems]
   );
 
   const uiLeads = useMemo(() => legacyLeads.map(mapUiLead), [legacyLeads]);
@@ -249,22 +314,38 @@ export default function LiveInbox({
   const liveHandlers: EngageLiveHandlers = useMemo(
     () => ({
       sendReply: async (leadId, text) => {
+        if (leadId.startsWith('ar:')) {
+          await approveAutoReply(leadId.slice(3), text);
+          await refresh();
+          return;
+        }
         await replyToLead(leadId, text, true);
         await refresh();
       },
       takeOver: async (leadId) => {
+        if (leadId.startsWith('ar:')) return;
         await triggerHandoff(leadId, 'Taken over from Inbox UI');
         await refresh();
       },
       releaseToAi: async (leadId) => {
+        if (leadId.startsWith('ar:')) return;
         await releaseLeadToAi(leadId);
         await refresh();
       },
       closeLead: async (leadId) => {
+        if (leadId.startsWith('ar:')) {
+          await dismissAutoReply(leadId.slice(3));
+          await refresh();
+          return;
+        }
         updateLeadStatus(leadId, 'closed');
         await refresh();
       },
       loadMessages: async (leadId) => {
+        if (leadId.startsWith('ar:')) {
+          const item = arRef.current.find((i) => i.id === leadId.slice(3));
+          return item ? arMessages(item) : [];
+        }
         const detail = await fetchLeadDetail(leadId);
         const lead = detail?.lead || getLeads().find((l) => l.id === leadId);
         if (!lead) return [];

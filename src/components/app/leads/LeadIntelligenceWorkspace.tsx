@@ -111,8 +111,8 @@ export default function LeadIntelligenceWorkspace({
 
   // Contact & Business details
   const phone = lead.phone || '+91 98201 44820';
-  const jobTitle = lead.title || (lead.name === 'Rahul Sharma' ? 'VP of Marketing & Growth' : 'Head of Growth & Operations');
-  const location = lead.location || (lead.name.includes('Rahul') ? 'Pune, India' : 'San Francisco, CA');
+  const jobTitle = lead.title || 'Not provided';
+  const location = lead.location || 'Not provided';
   const companySize = lead.companySize || '25 - 50 employees';
   const budget = lead.budget || lead.value || '₹5L – ₹8L ($10,000)';
   const timeline = lead.timeline || 'Within 30 days';
@@ -220,7 +220,7 @@ export default function LeadIntelligenceWorkspace({
     {
       id: 't-7',
       time: '11:05 AM',
-      title: `Assigned to ${lead.assignee?.name || 'Rahul — Sales'}`,
+      title: `Assigned to ${lead.assignee?.name || 'Unassigned'}`,
       description: 'Routing complete. Direct notification dispatched to account executive',
       type: 'assignment'
     }
@@ -298,7 +298,7 @@ export default function LeadIntelligenceWorkspace({
     const newMsg: LeadMessage = {
       id: `m-${Date.now()}`,
       sender: handlingMode === 'AI' ? 'ai' : 'human',
-      senderName: handlingMode === 'AI' ? 'Tecavy AI' : (lead.assignee?.name || 'Rahul — Sales'),
+      senderName: handlingMode === 'AI' ? 'Tecavy AI' : (lead.assignee?.name || 'Unassigned'),
       text: replyText.trim(),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
@@ -616,7 +616,7 @@ export default function LeadIntelligenceWorkspace({
                 isLight ? 'text-slate-400' : 'text-[#A9BFA5]/60'
               }`}>Assigned Owner</span>
               <span className={`font-semibold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                {lead.assignee?.name || 'Rahul — Sales'}
+                {lead.assignee?.name || 'Unassigned'}
               </span>
             </div>
           </div>
@@ -885,7 +885,7 @@ export default function LeadIntelligenceWorkspace({
                     onClick={() => {
                       setActiveSubTab('notes');
                       setShowAddFollowUp(true);
-                      if (onNotify) onNotify('Discovery Call Queued', 'Ready to schedule discovery call with Rahul.');
+                      if (onNotify) onNotify('Discovery Call Queued', 'Ready to schedule a discovery call.');
                     }}
                     className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
                   >
@@ -1585,7 +1585,7 @@ export default function LeadIntelligenceWorkspace({
         }`}>
           <div className="flex items-center space-x-2.5 text-xs">
             <span>
-              Assigned: <strong className={isLight ? 'text-slate-900' : 'text-white'}>{lead.assignee?.name || 'Rahul — Sales'}</strong>
+              Assigned: <strong className={isLight ? 'text-slate-900' : 'text-white'}>{lead.assignee?.name || 'Unassigned'}</strong>
             </span>
             <span>·</span>
             <span className={handlingMode === 'HUMAN' ? 'text-amber-600 dark:text-amber-300 font-semibold' : 'text-emerald-600 dark:text-emerald-400 font-medium'}>

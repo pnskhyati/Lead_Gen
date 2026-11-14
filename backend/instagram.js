@@ -7,6 +7,15 @@
 const axios = require('axios');
 const store = require('./instagramStore');
 const leadsCrm = require('./leadsCrm');
+const workspaceContext = require('./workspaceContext');
+const oauthState = require('./oauthState');
+const { verifyMetaSignature } = require('./metaWebhook');
+const fbStore = require('./facebookStore');
+
+/** Workspace that owns the account a webhook entry was addressed to (Instagram login or Page-linked). */
+function findWorkspaceForEntry(entry) {
+  return store.findWorkspaceByAccountId(entry?.id) || fbStore.findWorkspaceByAccountId(entry?.id);
+}
 
 const FB_GRAPH = 'https://graph.facebook.com/v22.0';
 const IG_GRAPH = 'https://graph.instagram.com/v22.0';
@@ -28,6 +37,7 @@ const IG_LOGIN_SCOPES = [
   'instagram_business_basic',
   'instagram_business_manage_comments',
   'instagram_business_manage_messages',
+  'instagram_business_content_publish',
 ].join(',');
 
 const FB_LOGIN_SCOPES = [
@@ -179,6 +189,7 @@ async function resolveInstagramLoginAccount(accessToken, fallbackUserId) {
   }
   return {
     authMode: 'instagram_login',
+    scopes: IG_LOGIN_SCOPES,
     accessToken,
     pageAccessToken: accessToken, // compatibility with older helpers
     userAccessToken: accessToken,
@@ -423,6 +434,7 @@ async function handleIncomingDm(vertex, leadAgent, { senderId, text, messageId, 
     message: text,
     history: history.slice(0, -1),
     visitorName: senderId,
+    channel: 'instagram',
   });
 
   // Soft intro with custom bot name on first turn
@@ -462,14 +474,18 @@ async function handleIncomingDm(vertex, leadAgent, { senderId, text, messageId, 
 
   await leadsCrm.addMessage({ leadId: lead.id, role: 'agent', text: replyText });
 
+  let sent = false;
+  let sendError = null;
   try {
     await sendInstagramDm(senderId, replyText);
+    sent = true;
     console.log(`[Instagram] Auto-replied in DM as ${botName} → ${senderId}`);
   } catch (err) {
+    sendError = err.response?.data?.error?.message || err.message;
     console.error('[Instagram] DM send failed:', err.response?.data || err.message);
   }
 
-  return { lead: updated, agentResult: { ...agentResult, reply: replyText } };
+  return { lead: updated, agentResult: { ...agentResult, reply: replyText }, sent, sendError };
 }
 
 async function fetchRecentComments(limitMedia = 8) {
@@ -676,9 +692,9 @@ function mountRoutes(app, { vertex, leadAgent, requireAuth }) {
     res.json(getStatus());
   });
 
-  app.get('/auth/instagram', (req, res) => {
+  app.get('/auth/instagram', guard, (req, res) => {
     try {
-      const url = authUrl(req.query.state || 'nexora');
+      const url = authUrl(oauthState.create({ channel: 'instagram', appUser: req.appUser }));
       res.send(`<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>Connect Instagram</title>
@@ -706,8 +722,13 @@ function mountRoutes(app, { vertex, leadAgent, requireAuth }) {
     }
   });
 
-  app.get('/auth/instagram/callback', async (req, res) => {
-    const { code, error, error_description: errorDescription } = req.query;
+  app.get('/auth/instagram/callback', guard, async (req, res) => {
+    const { code, state, error, error_description: errorDescription } = req.query;
+    try {
+      oauthState.verify(state, 'instagram', req.appUser);
+    } catch (err) {
+      return res.send(oauthReturnScript(FRONTEND_URL, { success: false, error: err.message }));
+    }
     if (error) {
       console.error('[Instagram] OAuth error:', error, errorDescription);
       return res.send(
@@ -788,9 +809,25 @@ function mountRoutes(app, { vertex, leadAgent, requireAuth }) {
   });
 
   app.post('/api/instagram/webhook', async (req, res) => {
+    if (!verifyMetaSignature(req)) return res.sendStatus(401);
     res.sendStatus(200);
     try {
-      const entries = req.body?.entry || [];
+      const allEntries = req.body?.entry || [];
+      for (const entry of allEntries) {
+        const ws = findWorkspaceForEntry(entry);
+        if (!ws) {
+          console.warn(`[Instagram] webhook for unknown account ${entry?.id} — ignored`);
+          continue;
+        }
+        await workspaceContext.run(ws, () => handleWebhookEntries(vertex, leadAgent, [entry]));
+      }
+    } catch (err) {
+      console.error('[Instagram] webhook handling error:', err.message);
+    }
+  });
+
+  async function handleWebhookEntries(vertex, leadAgent, entries) {
+    try {
       let sawComments = false;
       const account = store.getAccount();
       const ownIds = new Set(
@@ -842,7 +879,7 @@ function mountRoutes(app, { vertex, leadAgent, requireAuth }) {
     } catch (err) {
       console.error('[Instagram] webhook handling error:', err.message);
     }
-  });
+  }
 
   app.post('/api/instagram/subscribe-messaging', guard, async (_req, res) => {
     try {
@@ -861,6 +898,41 @@ function mountRoutes(app, { vertex, leadAgent, requireAuth }) {
   });
 }
 
+/** Reply publicly under a comment on one of our posts. */
+async function replyToComment(commentId, text) {
+  const account = store.getAccount();
+  const token = accessTokenOf(account);
+  if (!token) throw new Error('Instagram is not connected');
+  const { data } = await axios.post(`${graphBase(account)}/${commentId}/replies`, null, {
+    params: { message: text, access_token: token },
+  });
+  return data;
+}
+
+/**
+ * Recent incoming DMs, read by asking Instagram (no public webhook needed).
+ * Returns only messages sent TO us, newest conversations first.
+ */
+async function fetchRecentDms({ limit = 15 } = {}) {
+  const account = store.getAccount();
+  const token = accessTokenOf(account);
+  if (!account || !token) throw new Error('Instagram is not connected');
+  const base = graphBase(account);
+  const url = account.authMode === 'instagram_login' ? `${base}/me/conversations` : `${base}/${account.pageId}/conversations`;
+  const { data } = await axios.get(url, {
+    params: { platform: 'instagram', fields: 'id,updated_time,messages.limit(6){id,from,message,created_time}', limit, access_token: token },
+  });
+  const own = new Set([account.igUserId, account.pageId].filter(Boolean).map(String));
+  const out = [];
+  for (const conv of data.data || []) {
+    for (const m of conv.messages?.data || []) {
+      if (!m.message || !m.from?.id || own.has(String(m.from.id))) continue;
+      out.push({ id: m.id, text: m.message, senderId: String(m.from.id), username: m.from.username || '', timestamp: m.created_time });
+    }
+  }
+  return out;
+}
+
 module.exports = {
   isConfigured,
   getStatus,
@@ -868,4 +940,7 @@ module.exports = {
   syncAndScoreLeads,
   sendInstagramDm,
   handleIncomingDm,
+  fetchRecentComments,
+  fetchRecentDms,
+  replyToComment,
 };

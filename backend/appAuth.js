@@ -7,11 +7,18 @@ const path = require('path');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
+const workspaceContext = require('./workspaceContext');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const USERS_PATH = path.join(DATA_DIR, 'users.json');
 const COOKIE_NAME = 'nexora_session';
 const IS_PROD = process.env.NODE_ENV === 'production';
+/** Workspace that owns pre-multi-tenant data (users/knowledge created before workspaces existed). */
+const DEFAULT_WORKSPACE = 'default';
+
+function newWorkspaceId() {
+  return `ws-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`;
+}
 
 const UserSchema = new mongoose.Schema(
   {
@@ -20,6 +27,7 @@ const UserSchema = new mongoose.Schema(
     passwordHash: { type: String, required: true },
     name: { type: String, default: '' },
     role: { type: String, enum: ['admin', 'member'], default: 'member' },
+    workspaceId: { type: String, default: 'default', index: true },
     createdAt: { type: Date, default: Date.now },
   },
   { timestamps: true }
@@ -80,6 +88,7 @@ function publicUser(u) {
     email: u.email,
     name: u.name || '',
     role: u.role || 'member',
+    workspaceId: u.workspaceId || DEFAULT_WORKSPACE,
   };
 }
 
@@ -97,7 +106,7 @@ async function countUsers() {
   return readUsersFile().users.length;
 }
 
-async function createUser({ email, password, name, role = 'member' }) {
+async function createUser({ email, password, name, role = 'member', workspaceId = DEFAULT_WORKSPACE }) {
   const normalized = String(email).toLowerCase().trim();
   if (!normalized || !password || password.length < 8) {
     throw new Error('Email and password (min 8 chars) required');
@@ -111,6 +120,7 @@ async function createUser({ email, password, name, role = 'member' }) {
     passwordHash: hashPassword(password),
     name: name || normalized.split('@')[0],
     role,
+    workspaceId,
     createdAt: new Date().toISOString(),
   };
 
@@ -126,7 +136,7 @@ async function createUser({ email, password, name, role = 'member' }) {
 
 function signSession(user, jwtSecret) {
   return jwt.sign(
-    { typ: 'app', sub: user.id, email: user.email, role: user.role },
+    { typ: 'app', sub: user.id, email: user.email, role: user.role, wid: user.workspaceId || DEFAULT_WORKSPACE },
     jwtSecret,
     { expiresIn: '7d' }
   );
@@ -166,8 +176,10 @@ function requireAppAuth(jwtSecret) {
         id: decoded.sub,
         email: decoded.email,
         role: decoded.role,
+        workspaceId: decoded.wid || DEFAULT_WORKSPACE,
       };
-      next();
+      // Everything downstream (stores, RAG, agents) now resolves to this user's workspace.
+      workspaceContext.run(req.appUser.workspaceId, next);
     } catch {
       return res.status(401).json({ success: false, error: 'Session expired — sign in again' });
     }
@@ -182,12 +194,17 @@ function optionalAppAuth(jwtSecret) {
     try {
       const decoded = jwt.verify(token, jwtSecret);
       if (decoded.typ === 'app') {
-        req.appUser = { id: decoded.sub, email: decoded.email, role: decoded.role };
+        req.appUser = {
+          id: decoded.sub,
+          email: decoded.email,
+          role: decoded.role,
+          workspaceId: decoded.wid || DEFAULT_WORKSPACE,
+        };
       }
     } catch {
       /* ignore */
     }
-    next();
+    workspaceContext.run(req.appUser?.workspaceId || DEFAULT_WORKSPACE, next);
   };
 }
 
@@ -253,11 +270,13 @@ function mountRoutes(app, { jwtSecret }) {
         return res.status(403).json({ success: false, error: 'Registration is closed' });
       }
       const { email, password, name } = req.body || {};
+      // First account keeps the legacy workspace (existing data); every later signup owns a fresh one.
       const user = await createUser({
         email,
         password,
         name,
-        role: count === 0 ? 'admin' : 'member',
+        role: 'admin',
+        workspaceId: count === 0 ? DEFAULT_WORKSPACE : newWorkspaceId(),
       });
       const token = signSession(user, jwtSecret);
       setSessionCookie(res, token);
@@ -356,6 +375,7 @@ function rateLimit({ windowMs = 60_000, max = 60, key = 'default' } = {}) {
 
 module.exports = {
   COOKIE_NAME,
+  DEFAULT_WORKSPACE,
   mountRoutes,
   requireAppAuth,
   optionalAppAuth,

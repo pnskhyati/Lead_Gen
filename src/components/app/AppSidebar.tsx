@@ -21,7 +21,9 @@ import {
   Clock,
   Sparkles,
   Link2,
-  Shield
+  Shield,
+  Globe2,
+  MessageCircle
 } from 'lucide-react';
 import { NavCategory, SubCategory } from '../../types';
 
@@ -51,8 +53,7 @@ export const NAV_ITEMS: NavItemConfig[] = [
     id: 'inbox',
     label: 'Inbox',
     icon: InboxIcon,
-    isStandalone: true,
-    badgeCount: 3
+    isStandalone: true
   },
   {
     id: 'leads',
@@ -66,7 +67,7 @@ export const NAV_ITEMS: NavItemConfig[] = [
     icon: Wand2,
     subItems: [
       { id: 'create', label: 'Create' },
-      { id: 'schedule', label: 'Schedule' },
+      { id: 'schedule', label: 'Planner' },
       { id: 'library', label: 'Library', isLast: true }
     ]
   },
@@ -122,20 +123,18 @@ const TECAVY_NAV_GROUPS: { label: string; entries: TecavyNavEntry[] }[] = [
     label: 'WORKSPACE',
     entries: [
       { key: 'overview', label: 'Overview', icon: Compass, category: 'overview', sub: 'overview' },
-      { key: 'inbox', label: 'Inbox', icon: InboxIcon, category: 'inbox', sub: 'inbox', badgeCount: 3 },
+      { key: 'inbox', label: 'Inbox', icon: InboxIcon, category: 'inbox', sub: 'inbox' },
       { key: 'leads', label: 'Leads', icon: Users, category: 'leads', sub: 'all-leads' },
       { key: 'followups', label: 'Follow-ups', icon: Clock, category: 'followups', sub: 'follow-ups' },
-      { key: 'connections', label: 'Connections', icon: Link2, category: 'channels', sub: 'connections' },
+      { key: 'autoreply', label: 'Auto-reply', icon: MessageCircle, category: 'autoreply', sub: 'overview' },
     ],
   },
   {
     label: 'AI & MARKETING',
     entries: [
       { key: 'agent', label: 'Engagement Agent', icon: Sparkles, category: 'agent', sub: 'lead-growth' },
-      { key: 'content-studio', label: 'Content Studio', icon: Wand2, category: 'content', sub: 'create' },
-      { key: 'schedule', label: 'Schedule', icon: Calendar, category: 'content', sub: 'schedule' },
-      { key: 'library', label: 'Library', icon: Layers, category: 'content', sub: 'library' },
-      { key: 'campaigns', label: 'Campaigns', icon: Megaphone, category: 'campaigns', sub: 'campaign-list' },
+      { key: 'schedule', label: 'Content Planner', icon: Calendar, category: 'content', sub: 'schedule' },
+      { key: 'seo', label: 'SEO / GEO', icon: Globe2, category: 'seo', sub: 'overview' },
       { key: 'analytics', label: 'Analytics', icon: BarChart3, category: 'analytics', sub: 'overview' },
     ],
   },
@@ -151,10 +150,10 @@ export function resolveTecavyNavKey(category: NavCategory, sub: SubCategory): st
   if (category === 'followups') return 'followups';
   if (category === 'agent') return 'agent';
   if (category === 'intelligence') return 'intelligence';
+  if (category === 'seo') return 'seo';
+  if (category === 'autoreply') return 'autoreply';
   if (category === 'content') {
-    if (sub === 'schedule' || sub === 'manual-scheduling') return 'schedule';
-    if (sub === 'library' || sub === 'content-library' || sub === 'generated-assets') return 'library';
-    return 'content-studio';
+    return 'schedule';
   }
   if (category === 'agents') {
     if (sub === 'competitor') return 'intelligence';
@@ -200,11 +199,7 @@ export default function AppSidebar({
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
   const [currentWorkspace, setCurrentWorkspace] = useState(workspaceName);
 
-  const workspaces = [
-    { id: 'ws-1', name: 'Acme Studio', role: 'Owner' },
-    { id: 'ws-2', name: 'Acme Retail Hub', role: 'Admin' },
-    { id: 'ws-3', name: 'Sterling Creative', role: 'Viewer' }
-  ];
+  const workspaces = [{ id: 'ws-1', name: workspaceName, role: 'Owner' }];
 
   const handleCategoryClick = (item: NavItemConfig) => {
     if (item.isStandalone) {

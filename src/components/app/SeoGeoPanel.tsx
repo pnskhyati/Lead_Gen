@@ -8,6 +8,7 @@ import {
   disconnectSeoGeoGoogle,
   loadSeoGeoRecommendations,
   patchSeoGeoRecommendation,
+  proposeSeoGeoFix,
   runSeoGeoAudit,
   startSeoGeoGoogleOAuth,
   statusLabel,
@@ -18,7 +19,7 @@ import {
   type SeoGeoRecommendation,
   type SeoGeoRecommendationsResponse,
 } from '../../legacy/services/seoGeoService';
-import { PLATFORM_TABS, SeoGeoToolTabPanel, type SeoGeoPlatformTab } from './SeoGeoToolTabs';
+import { PLATFORM_TABS, TAB_HELP, SeoGeoToolTabPanel, type SeoGeoPlatformTab } from './SeoGeoToolTabs';
 
 interface SeoGeoPanelProps {
   variant?: 'overview' | 'legacy';
@@ -29,15 +30,25 @@ interface SeoGeoPanelProps {
 }
 
 const ALL_CATEGORIES: Array<SeoGeoCategory | 'all'> = ['all', 'technical_seo', 'local_seo', 'geo'];
-const ALL_PRIORITIES: Array<SeoGeoPriority | 'all'> = ['all', 'P0', 'P1', 'P2', 'P3'];
-const ALL_STATUSES: Array<RecommendationStatus | 'all'> = [
-  'all',
-  'open',
-  'needs_verification',
-  'in_progress',
-  'verified',
-  'dismissed',
-];
+const ALL_PRIORITIES: Array<SeoGeoPriority | 'all'> = ['all', 'P0', 'P1', 'P2'];
+
+const PENALTY: Record<string, number> = { P0: 12, P1: 6, P2: 3, P3: 1 };
+
+/** 0-100 from the problems still unfixed. Done and ignored items do not count against the site. */
+function healthScore(recs: SeoGeoRecommendation[]): number {
+  const penalty = recs
+    .filter((r) => r.status !== 'verified' && r.status !== 'dismissed')
+    .reduce((sum, r) => sum + (PENALTY[r.priority] ?? 1), 0);
+  return Math.max(0, 100 - penalty);
+}
+
+function scoreBand(score: number): { label: string; tone: string } {
+  if (score >= 85) return { label: 'Good', tone: 'text-emerald-500' };
+  if (score >= 60) return { label: 'Needs work', tone: 'text-amber-500' };
+  return { label: 'Poor', tone: 'text-rose-500' };
+}
+
+const PRIORITY_LABEL: Record<string, string> = { P0: 'Fix first', P1: 'Important', P2: 'When you can', P3: 'When you can' };
 
 function PriorityBadge({ priority, isLight }: { priority: SeoGeoPriority; isLight: boolean }) {
   const tone =
@@ -53,7 +64,7 @@ function PriorityBadge({ priority, isLight }: { priority: SeoGeoPriority; isLigh
           ? 'bg-slate-100 text-slate-700 border-slate-200'
           : 'bg-[#0D2D2A] text-[#A9BFA5] border-[rgba(169,191,165,0.2)]';
   return (
-    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${tone}`}>{priority}</span>
+    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${tone}`}>{PRIORITY_LABEL[priority] || priority}</span>
   );
 }
 
@@ -62,11 +73,13 @@ function RecommendationCard({
   isLight,
   busy,
   onStatus,
+  onDraft,
 }: {
   rec: SeoGeoRecommendation;
   isLight: boolean;
   busy: boolean;
   onStatus: (id: string, status: RecommendationStatus) => void | Promise<void>;
+  onDraft: (id: string) => void | Promise<void>;
 }) {
   const muted = isLight ? 'text-slate-500' : 'text-[#A9BFA5]';
   const title = isLight ? 'text-slate-900' : 'text-white';
@@ -82,8 +95,7 @@ function RecommendationCard({
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <PriorityBadge priority={rec.priority} isLight={isLight} />
-            <span className={`text-[10px] font-semibold uppercase ${muted}`}>{categoryLabel(rec.category)}</span>
-            <span className={`text-[10px] ${muted}`}>Score {rec.score}</span>
+            <span className={`text-[10px] font-semibold ${muted}`}>{categoryLabel(rec.category)}</span>
           </div>
           <p className={`text-sm font-semibold leading-snug ${title}`}>{rec.title}</p>
         </div>
@@ -101,12 +113,8 @@ function RecommendationCard({
         {rec.businessImpact}
       </p>
       <p className={`text-xs ${title}`}>
-        <span className="font-semibold">Fix: </span>
+        <span className="font-semibold">What to do: </span>
         {rec.recommendedAction}
-      </p>
-      <p className={`text-xs ${muted}`}>
-        <span className="font-semibold">Verify: </span>
-        {rec.verificationMethod}
       </p>
 
       <button
@@ -114,7 +122,7 @@ function RecommendationCard({
         onClick={() => setExpanded((e) => !e)}
         className={`flex items-center gap-1 text-[11px] font-semibold ${isLight ? 'text-teal-700' : 'text-teal-400'}`}
       >
-        Evidence ({rec.evidence.length})
+        How we found this
         <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
       {expanded && (
@@ -132,12 +140,23 @@ function RecommendationCard({
               ))}
             </li>
           )}
-          <li>Evidence type: {confirmationLabel(rec.confirmationLevel as ConfirmationLevel)} · Effort: {rec.effort}</li>
+          <li>How to check it is fixed: {rec.verificationMethod}</li>
+          <li>{confirmationLabel(rec.confirmationLevel as ConfirmationLevel)} · Effort: {rec.effort}</li>
         </ul>
       )}
 
       <div className="flex flex-wrap gap-1.5 pt-1">
-        {(['open', 'in_progress', 'needs_verification', 'verified', 'dismissed'] as RecommendationStatus[]).map(
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void onDraft(rec.id)}
+          className={`text-[10px] font-semibold px-2 py-1 rounded-md ${isLight ? 'bg-teal-600 text-white' : 'bg-teal-500/30 text-teal-100'} disabled:opacity-50`}
+        >
+          Draft a fix
+        </button>
+        {(['in_progress', 'verified', 'dismissed', 'open'] as RecommendationStatus[])
+          .filter((s) => s !== 'open' || rec.status !== 'open')
+          .map(
           (s) => (
             <button
               key={s}
@@ -154,7 +173,7 @@ function RecommendationCard({
                     : 'border-[rgba(169,191,165,0.2)] text-[#A9BFA5]'
               }`}
             >
-              {statusLabel(s)}
+              {s === 'open' ? 'Reopen' : s === 'in_progress' ? 'Working on it' : statusLabel(s)}
             </button>
           )
         )}
@@ -183,7 +202,7 @@ export default function SeoGeoPanel({
   const [platformTab, setPlatformTab] = useState<SeoGeoPlatformTab>('audit');
   const [category, setCategory] = useState<SeoGeoCategory | 'all'>('all');
   const [priority, setPriority] = useState<SeoGeoPriority | 'all'>('all');
-  const [status, setStatus] = useState<RecommendationStatus | 'all'>('all');
+  const [showDone, setShowDone] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -207,10 +226,10 @@ export default function SeoGeoPanel({
     return data.recommendations.filter((r) => {
       if (category !== 'all' && r.category !== category) return false;
       if (priority !== 'all' && r.priority !== priority) return false;
-      if (status !== 'all' && r.status !== status) return false;
+      if (!showDone && (r.status === 'verified' || r.status === 'dismissed')) return false;
       return true;
     });
-  }, [data, category, priority, status]);
+  }, [data, category, priority, showDone]);
 
   const onConnectGoogle = async () => {
     setConnectBusy(true);
@@ -265,6 +284,19 @@ export default function SeoGeoPanel({
     }
   }, []);
 
+  const onDraft = async (id: string) => {
+    setBusyId(id);
+    setError(null);
+    try {
+      await proposeSeoGeoFix({ recommendationId: id, issueType: 'generic' });
+      setPlatformTab('advanced');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not draft a fix');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const onStatus = async (id: string, next: RecommendationStatus) => {
     setBusyId(id);
     try {
@@ -289,22 +321,17 @@ export default function SeoGeoPanel({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <Globe2 className={`w-4 h-4 ${isLight ? 'text-teal-600' : 'text-teal-400'}`} />
-            <h2 className={`text-base font-bold ${title}`}>Attract · SEO / GEO</h2>
+            <h2 className={`text-base font-bold ${title}`}>Get found online</h2>
           </div>
           <p className={`text-xs ${muted}`}>
-            Evidence-based audit — not a ranking guarantee
-            {data?.summary
-              ? ` · ${data.summary.open + data.summary.inProgress} active · ${data.summary.byPriority.P0 || 0} P0`
-              : ''}
+            Show up when people search on Google (SEO) and when they ask AI tools like ChatGPT and Gemini (GEO).
           </p>
-          {data?.crawlSummary && (
+          {data?.summary && (
             <p className={`text-[11px] ${muted}`}>
-              Last audit {new Date(data.runAt).toLocaleString()}
-              {data.crawlSummary.origin
-                ? ` · ${data.crawlSummary.homepageOk ? 'Site crawled' : 'Crawl issues'}${
-                    data.crawlSummary.pagesCrawled ? ` · ${data.crawlSummary.pagesCrawled} pages` : ''
-                  }`
-                : ' · No website URL'}
+              {data.summary.open + data.summary.inProgress === 0
+                ? 'Nothing to fix right now.'
+                : `${data.summary.open + data.summary.inProgress} things to fix${data.summary.byPriority.P0 ? `, ${data.summary.byPriority.P0} to fix first` : ''}.`}
+              {data.crawlSummary?.origin ? ` Checked ${new Date(data.runAt).toLocaleDateString()}.` : ' Add your website in Brand settings so we can check it.'}
             </p>
           )}
         </div>
@@ -317,7 +344,7 @@ export default function SeoGeoPanel({
                 isLight ? 'border-slate-200 text-slate-700 hover:bg-slate-50' : 'border-[rgba(169,191,165,0.2)] text-[#A9BFA5]'
               }`}
             >
-              Brand & NAP
+              Business details
             </button>
           )}
           <button
@@ -328,7 +355,7 @@ export default function SeoGeoPanel({
               isLight ? 'bg-teal-600 text-white hover:bg-teal-700' : 'bg-teal-500/30 text-teal-100'
             } disabled:opacity-50`}
           >
-            {auditing ? 'Auditing…' : 'Re-audit'}
+            {auditing ? 'Checking…' : 'Check my website again'}
           </button>
           <button
             type="button"
@@ -363,6 +390,23 @@ export default function SeoGeoPanel({
         ))}
       </div>
 
+      {data && data.crawlSummary?.origin && (
+        <div className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[rgba(169,191,165,0.15)] bg-[#061816]'}`}>
+          <span className={`text-3xl font-bold tabular-nums ${scoreBand(healthScore(data.recommendations)).tone}`}>
+            {healthScore(data.recommendations)}
+            <span className={`text-sm font-semibold ${muted}`}>/100</span>
+          </span>
+          <span className="text-xs">
+            <span className={`block font-semibold ${title}`}>Website health: {scoreBand(healthScore(data.recommendations)).label}</span>
+            <span className={muted}>
+              Goes up as you fix things. Fix-first items count most. Based on the checks we run on your site; it is not a Google score.
+            </span>
+          </span>
+        </div>
+      )}
+
+      <p className={`text-xs ${muted}`}>{TAB_HELP[platformTab]}</p>
+
       {platformTab !== 'audit' && (
         <SeoGeoToolTabPanel tab={platformTab} isLight={isLight} onError={setError} />
       )}
@@ -370,15 +414,15 @@ export default function SeoGeoPanel({
       {platformTab === 'audit' && data?.integrations && (
         <div className={`flex flex-wrap items-center gap-2 text-[10px] ${muted}`}>
           <span className={`px-2 py-1 rounded-md border ${isLight ? 'border-slate-200' : 'border-[rgba(169,191,165,0.15)]'}`}>
-            GSC:{' '}
+            Google Search data:{' '}
             {data.integrations.googleSearchConsole.connected
-              ? data.integrations.googleSearchConsole.siteUrl || 'Synced'
+              ? data.integrations.googleSearchConsole.siteUrl || 'Connected'
               : 'Not connected'}
           </span>
           <span className={`px-2 py-1 rounded-md border ${isLight ? 'border-slate-200' : 'border-[rgba(169,191,165,0.15)]'}`}>
-            GBP:{' '}
+            Google Business:{' '}
             {data.integrations.googleBusinessProfile.connected
-              ? data.integrations.googleBusinessProfile.locationTitle || 'Synced'
+              ? data.integrations.googleBusinessProfile.locationTitle || 'Connected'
               : 'Not connected'}
           </span>
           {data.integrations.oauthConfigured ? (
@@ -402,7 +446,7 @@ export default function SeoGeoPanel({
               </button>
             )
           ) : (
-            <span className="italic">Add GOOGLE_SEO_CLIENT_ID on server to enable connect.</span>
+            <span className="italic">Connecting Google is not set up on this server yet.</span>
           )}
         </div>
       )}
@@ -416,7 +460,7 @@ export default function SeoGeoPanel({
         >
           {ALL_CATEGORIES.map((c) => (
             <option key={c} value={c}>
-              {c === 'all' ? 'All categories' : categoryLabel(c as SeoGeoCategory)}
+              {c === 'all' ? 'All topics' : categoryLabel(c as SeoGeoCategory)}
             </option>
           ))}
         </select>
@@ -427,21 +471,14 @@ export default function SeoGeoPanel({
         >
           {ALL_PRIORITIES.map((p) => (
             <option key={p} value={p}>
-              {p === 'all' ? 'All priorities' : p}
+              {p === 'all' ? 'Everything' : PRIORITY_LABEL[p]}
             </option>
           ))}
         </select>
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value as RecommendationStatus | 'all')}
-          className={`text-[11px] rounded-lg border px-2 py-1.5 ${isLight ? 'border-slate-200 bg-white' : 'border-[rgba(169,191,165,0.2)] bg-[#061816] text-[#E8E9D8]'}`}
-        >
-          {ALL_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s === 'all' ? 'All statuses' : statusLabel(s as RecommendationStatus)}
-            </option>
-          ))}
-        </select>
+        <label className={`text-[11px] flex items-center gap-1.5 ${muted}`}>
+          <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
+          Show done and ignored
+        </label>
       </div>
       )}
 
@@ -453,12 +490,12 @@ export default function SeoGeoPanel({
 
       {platformTab === 'audit' &&
         (loading && !data ? (
-          <p className={`text-xs ${muted}`}>Running discoverability audit…</p>
+          <p className={`text-xs ${muted}`}>Checking your website…</p>
         ) : filtered.length === 0 ? (
           <p className={`text-xs ${muted}`}>
             {data?.recommendations.length
-              ? 'No recommendations match these filters.'
-              : 'No open issues detected — re-audit after site or knowledge changes.'}
+              ? 'Nothing matches this filter. Nothing left to fix here.'
+              : 'No problems found. Click "Check my website again" after you change your site.'}
           </p>
         ) : (
           <ul className="space-y-2">
@@ -469,6 +506,7 @@ export default function SeoGeoPanel({
                 isLight={isLight}
                 busy={busyId === rec.id}
                 onStatus={onStatus}
+                onDraft={onDraft}
               />
             ))}
           </ul>
@@ -476,7 +514,7 @@ export default function SeoGeoPanel({
 
       {platformTab === 'audit' && variant === 'overview' && data?.summary && (
         <p className={`text-[10px] ${muted} border-t pt-2 ${isLight ? 'border-slate-200' : 'border-[rgba(169,191,165,0.15)]'}`}>
-          {data.summary.verified} verified · {data.summary.dismissed} dismissed · Audit ID {data.auditId.slice(0, 12)}…
+          {data.summary.verified} done · {data.summary.dismissed} ignored
         </p>
       )}
     </section>

@@ -3,12 +3,13 @@
  */
 const fs = require('fs');
 const path = require('path');
+const wsData = require('../workspaceData');
 const crypto = require('crypto');
 const { google } = require('googleapis');
 const { rec } = require('./rules');
 
-const STORE_PATH = path.join(__dirname, '..', 'data', 'company', 'seo-geo-google.json');
-const PENDING_PATH = path.join(__dirname, '..', 'data', 'company', 'seo-geo-oauth-pending.json');
+const STORE_PATH = () => wsData.companyPath('seo-geo-google.json');
+const PENDING_PATH = () => wsData.companyPath('seo-geo-oauth-pending.json');
 
 const CLIENT_ID = process.env.GOOGLE_SEO_CLIENT_ID || process.env.GOOGLE_ADS_CLIENT_ID || '';
 const CLIENT_SECRET = process.env.GOOGLE_SEO_CLIENT_SECRET || process.env.GOOGLE_ADS_CLIENT_SECRET || '';
@@ -26,17 +27,17 @@ const SCOPES = [
 ];
 
 function ensureDir() {
-  const dir = path.dirname(STORE_PATH);
+  const dir = path.dirname(STORE_PATH());
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
 function readStore() {
   ensureDir();
   try {
-    if (!fs.existsSync(STORE_PATH)) {
+    if (!fs.existsSync(STORE_PATH())) {
       return { connected: false, refreshToken: null, email: null, gsc: {}, gbp: {}, updatedAt: null };
     }
-    return JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
+    return JSON.parse(fs.readFileSync(STORE_PATH(), 'utf8'));
   } catch {
     return { connected: false, refreshToken: null, email: null, gsc: {}, gbp: {}, updatedAt: null };
   }
@@ -44,7 +45,7 @@ function readStore() {
 
 function writeStore(data) {
   ensureDir();
-  fs.writeFileSync(STORE_PATH, JSON.stringify({ ...data, updatedAt: new Date().toISOString() }, null, 2));
+  fs.writeFileSync(STORE_PATH(), JSON.stringify({ ...data, updatedAt: new Date().toISOString() }, null, 2));
 }
 
 function isOAuthConfigured() {
@@ -96,16 +97,11 @@ async function getAuthedClient() {
   return client;
 }
 
-function startOAuth() {
+function startOAuth(appUser) {
   if (!isOAuthConfigured()) {
     throw new Error('Google OAuth is not configured on the server (GOOGLE_SEO_CLIENT_ID / SECRET)');
   }
-  const state = crypto.randomBytes(16).toString('hex');
-  ensureDir();
-  fs.writeFileSync(
-    PENDING_PATH,
-    JSON.stringify({ state, createdAt: Date.now() }, null, 2)
-  );
+  const state = require('../oauthState').create({ channel: 'google-seo', appUser });
   const client = createOAuthClient();
   const url = client.generateAuthUrl({
     access_type: 'offline',
@@ -116,12 +112,8 @@ function startOAuth() {
   return { url, state };
 }
 
-async function handleOAuthCallback(code, state) {
-  if (!fs.existsSync(PENDING_PATH)) throw new Error('OAuth session expired — start connect again');
-  const pending = JSON.parse(fs.readFileSync(PENDING_PATH, 'utf8'));
-  if (pending.state !== state) throw new Error('Invalid OAuth state');
-  fs.unlinkSync(PENDING_PATH);
-
+async function handleOAuthCallback(code) {
+  // The caller has already verified the signed state and is running inside its workspace.
   const client = createOAuthClient();
   const { tokens } = await client.getToken(code);
   client.setCredentials(tokens);

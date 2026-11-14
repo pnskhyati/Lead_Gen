@@ -8,6 +8,7 @@ export interface AppUser {
   email: string;
   name?: string;
   role?: string;
+  workspaceId?: string;
 }
 
 async function parseJson(res: Response) {

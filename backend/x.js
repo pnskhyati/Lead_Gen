@@ -334,11 +334,17 @@ function mountRoutes(app, { vertex, requireAuth }) {
     res.json(getStatus());
   });
 
-  app.get('/auth/x', (req, res) => {
+  app.get('/auth/x', guard, (req, res) => {
     try {
       const state = crypto.randomBytes(16).toString('hex');
       const { codeVerifier, codeChallenge } = generatePkce();
-      store.setPending({ state, codeVerifier, createdAt: new Date().toISOString() });
+      store.setPending({
+        state,
+        codeVerifier,
+        workspaceId: req.appUser.workspaceId,
+        userId: req.appUser.id,
+        createdAt: new Date().toISOString(),
+      });
       const url = authUrl(state, codeChallenge);
       res.send(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Connect X</title>
@@ -355,7 +361,7 @@ a{display:inline-block;margin-top:1rem;background:#0f172a;color:#fff;text-decora
     }
   });
 
-  app.get('/auth/x/callback', async (req, res) => {
+  app.get('/auth/x/callback', guard, async (req, res) => {
     const { code, state, error, error_description: errorDescription } = req.query;
     if (error) {
       return res.send(oauthReturnScript(FRONTEND_URL, { success: false, error: String(errorDescription || error) }));
@@ -366,6 +372,9 @@ a{display:inline-block;margin-top:1rem;background:#0f172a;color:#fff;text-decora
     const pending = store.consumePending(String(state));
     if (!pending?.codeVerifier) {
       return res.send(oauthReturnScript(FRONTEND_URL, { success: false, error: 'oauth_session_expired' }));
+    }
+    if (pending.userId !== req.appUser?.id) {
+      return res.send(oauthReturnScript(FRONTEND_URL, { success: false, error: 'oauth_user_mismatch' }));
     }
     try {
       const account = await completeOAuth(String(code), pending);
@@ -399,6 +408,17 @@ a{display:inline-block;margin-top:1rem;background:#0f172a;color:#fff;text-decora
   });
 }
 
+/** Reply to a tweet that mentions us. */
+async function replyToTweet(tweetId, text) {
+  const token = await ensureAccessToken();
+  const { data } = await axios.post(
+    `${API}/tweets`,
+    { text: String(text).slice(0, 280), reply: { in_reply_to_tweet_id: String(tweetId) } },
+    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+  );
+  return { id: data.data?.id };
+}
+
 module.exports = {
   isConfigured,
   getStatus,
@@ -406,4 +426,7 @@ module.exports = {
   publishTweet,
   syncAndScoreLeads,
   tweetTextFromPost,
+  fetchRecentMentions,
+  replyToTweet,
+  getAccessToken: ensureAccessToken,
 };

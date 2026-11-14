@@ -1,89 +1,96 @@
 const fs = require('fs');
 const path = require('path');
+const { createWorkspaceStore } = require('./wsStore');
 
 const DATA_DIR = path.join(__dirname, 'data');
-const STORE_PATH = path.join(DATA_DIR, 'x.json');
 const PENDING_PATH = path.join(DATA_DIR, 'x-oauth-pending.json');
+const PENDING_TTL_MS = 15 * 60_000;
 
-function ensureStore() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(STORE_PATH)) {
-    fs.writeFileSync(STORE_PATH, JSON.stringify({ account: null, seenMentionIds: [], leads: [] }, null, 2));
-  }
-}
-
-function read() {
-  ensureStore();
-  try {
-    return JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
-  } catch {
-    return { account: null, seenMentionIds: [], leads: [] };
-  }
-}
-
-function write(data) {
-  ensureStore();
-  fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2));
-}
+const store = createWorkspaceStore(path.join(DATA_DIR, 'x.json'), {
+  account: null,
+  seenMentionIds: [],
+  leads: [],
+});
 
 function getAccount() {
-  return read().account;
+  return store.read().account;
 }
 
 function setAccount(account) {
-  const data = read();
-  data.account = account;
-  write(data);
+  store.update((s) => {
+    s.account = account;
+  });
   return account;
 }
 
 function clearAccount() {
-  const data = read();
-  data.account = null;
-  write(data);
+  store.update((s) => {
+    s.account = null;
+  });
 }
 
-function setPending(pending) {
-  ensureStore();
-  fs.writeFileSync(PENDING_PATH, JSON.stringify(pending, null, 2));
-}
-
-function consumePending(state) {
+// PKCE verifiers wait here between the redirect to X and the callback, keyed by OAuth state
+// so concurrent connects from different workspaces never collide.
+function readPending() {
   try {
-    const pending = JSON.parse(fs.readFileSync(PENDING_PATH, 'utf8'));
-    if (pending.state !== state) return null;
-    fs.unlinkSync(PENDING_PATH);
-    return pending;
+    const raw = JSON.parse(fs.readFileSync(PENDING_PATH, 'utf8'));
+    return raw && typeof raw === 'object' && !raw.state ? raw : {};
   } catch {
-    return null;
+    return {};
   }
 }
 
+function setPending(pending) {
+  const all = readPending();
+  const now = Date.now();
+  for (const [key, value] of Object.entries(all)) {
+    if (now - new Date(value.createdAt).getTime() > PENDING_TTL_MS) delete all[key];
+  }
+  all[pending.state] = pending;
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(PENDING_PATH, JSON.stringify(all, null, 2));
+}
+
+function consumePending(state) {
+  const all = readPending();
+  const pending = all[state];
+  if (!pending) return null;
+  delete all[state];
+  fs.writeFileSync(PENDING_PATH, JSON.stringify(all, null, 2));
+  return Date.now() - new Date(pending.createdAt).getTime() > PENDING_TTL_MS ? null : pending;
+}
+
 function getSeenMentionIds() {
-  return new Set(read().seenMentionIds || []);
+  return new Set(store.read().seenMentionIds || []);
 }
 
 function markMentionsSeen(ids) {
-  const data = read();
-  const set = new Set([...(data.seenMentionIds || []), ...ids]);
-  data.seenMentionIds = Array.from(set).slice(-2000);
-  write(data);
+  store.update((s) => {
+    s.seenMentionIds = Array.from(new Set([...(s.seenMentionIds || []), ...ids])).slice(-2000);
+  });
 }
 
 function appendLeads(leads) {
-  const data = read();
-  const existingIds = new Set((data.leads || []).map((l) => l.externalId).filter(Boolean));
-  const fresh = leads.filter((l) => l.externalId && !existingIds.has(l.externalId));
-  data.leads = [...fresh, ...(data.leads || [])].slice(0, 200);
-  write(data);
+  let fresh = [];
+  store.update((s) => {
+    const existingIds = new Set((s.leads || []).map((l) => l.externalId).filter(Boolean));
+    fresh = leads.filter((l) => l.externalId && !existingIds.has(l.externalId));
+    s.leads = [...fresh, ...(s.leads || [])].slice(0, 200);
+  });
   return fresh;
 }
 
 function getStoredLeads() {
-  return read().leads || [];
+  return store.read().leads || [];
+}
+
+/** Workspaces that have X connected (used by the reply poller). */
+function workspaceIds() {
+  return store.entries().filter(([, s]) => s.account).map(([id]) => id);
 }
 
 module.exports = {
+  workspaceIds,
   getAccount,
   setAccount,
   clearAccount,

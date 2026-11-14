@@ -342,7 +342,7 @@ export default function SocialHubView({
         .finally(() => setIsDraftGenerating(false));
       return;
     }
-    setDraftError('Live AI is unavailable — open Content Studio or sign in to Nexora.');
+    setDraftError('Live AI is unavailable — sign in to Nexora and try again.');
   };
 
   const handleConfirmSchedule = () => {

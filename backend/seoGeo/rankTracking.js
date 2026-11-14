@@ -2,22 +2,23 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const axios = require('axios');
+const wsData = require('../workspaceData');
 const { getAuthedClient, readStore } = require('./googleIntegrations');
 
-const KEYWORDS_PATH = path.join(__dirname, '..', 'data', 'company', 'seo-geo-keywords.json');
-const SNAPSHOTS_PATH = path.join(__dirname, '..', 'data', 'company', 'seo-geo-rank-snapshots.json');
+const KEYWORDS_PATH = () => wsData.companyPath('seo-geo-keywords.json');
+const SNAPSHOTS_PATH = () => wsData.companyPath('seo-geo-rank-snapshots.json');
 
 const SERP_API_KEY = process.env.SERPAPI_KEY || process.env.SERP_API_KEY || '';
 
 function ensureDir() {
-  const dir = path.dirname(KEYWORDS_PATH);
+  const dir = path.dirname(KEYWORDS_PATH());
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
 function readKeywords() {
   ensureDir();
   try {
-    return JSON.parse(fs.readFileSync(KEYWORDS_PATH, 'utf8')).keywords || [];
+    return JSON.parse(fs.readFileSync(KEYWORDS_PATH(), 'utf8')).keywords || [];
   } catch {
     return [];
   }
@@ -25,13 +26,13 @@ function readKeywords() {
 
 function writeKeywords(keywords) {
   ensureDir();
-  fs.writeFileSync(KEYWORDS_PATH, JSON.stringify({ keywords, updatedAt: new Date().toISOString() }, null, 2));
+  fs.writeFileSync(KEYWORDS_PATH(), JSON.stringify({ keywords, updatedAt: new Date().toISOString() }, null, 2));
 }
 
 function readSnapshots() {
   ensureDir();
   try {
-    return JSON.parse(fs.readFileSync(SNAPSHOTS_PATH, 'utf8')).snapshots || [];
+    return JSON.parse(fs.readFileSync(SNAPSHOTS_PATH(), 'utf8')).snapshots || [];
   } catch {
     return [];
   }
@@ -41,7 +42,7 @@ function appendSnapshots(rows) {
   const snapshots = readSnapshots();
   const next = [...rows, ...snapshots].slice(0, 5000);
   ensureDir();
-  fs.writeFileSync(SNAPSHOTS_PATH, JSON.stringify({ snapshots: next, updatedAt: new Date().toISOString() }, null, 2));
+  fs.writeFileSync(SNAPSHOTS_PATH(), JSON.stringify({ snapshots: next, updatedAt: new Date().toISOString() }, null, 2));
   return next;
 }
 
@@ -140,6 +141,9 @@ async function syncRankings() {
   const runAt = new Date().toISOString();
   const rows = [];
 
+  if (!keywords.length) throw new Error('Add at least one search to track first.');
+  if (!siteUrl && !SERP_API_KEY) throw new Error('Connect Google first (on the "What to fix" tab), so we can read your real Google data.');
+
   for (const kw of keywords) {
     const prev = readSnapshots().find((s) => s.keywordId === kw.id);
     let gsc = null;
@@ -162,8 +166,18 @@ async function syncRankings() {
         ? Number(previousPosition) - Number(currentPosition)
         : null;
 
+    // Say exactly why there is no number, so an error is never mistaken for "you do not rank".
+    let note = null;
+    if (currentPosition == null) {
+      if (gsc?.error) note = `Google could not be read: ${gsc.error}`;
+      else if (serp?.error) note = `Live search check failed: ${serp.error}`;
+      else note = 'Google has no data for this exact search in the last 28 days, so people have not reached your site through it yet.';
+    }
+
     rows.push({
       id: `snap-${Date.now()}-${kw.id}`,
+      note,
+      error: Boolean(gsc?.error || serp?.error),
       keywordId: kw.id,
       keyword: kw.keyword,
       runAt,

@@ -3,6 +3,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const wsData = require('../workspaceData');
 const crypto = require('crypto');
 const {
   fetchUrl,
@@ -13,8 +14,8 @@ const {
 const { assertSafeFetchUrl } = require('./ssrf');
 const { buildMultiPageRecommendations } = require('./siteCrawl');
 
-const DATA_DIR = path.join(__dirname, '..', 'data', 'company', 'seo-geo-crawl');
-const INDEX_PATH = path.join(DATA_DIR, 'jobs-index.json');
+const DATA_DIR = () => wsData.companyPath('seo-geo-crawl');
+const INDEX_PATH = () => path.join(DATA_DIR(), 'jobs-index.json');
 
 const DEFAULT_MAX_URLS = Number(process.env.SEO_GEO_CRAWL_MAX_URLS || 500);
 const MAX_CAP = Number(process.env.SEO_GEO_CRAWL_HARD_CAP || 2000);
@@ -24,13 +25,13 @@ const CONCURRENCY = Number(process.env.SEO_GEO_CRAWL_CONCURRENCY || 3);
 const runningJobs = new Set();
 
 function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(DATA_DIR())) fs.mkdirSync(DATA_DIR(), { recursive: true });
 }
 
 function readIndex() {
   ensureDir();
   try {
-    return JSON.parse(fs.readFileSync(INDEX_PATH, 'utf8'));
+    return JSON.parse(fs.readFileSync(INDEX_PATH(), 'utf8'));
   } catch {
     return { latestCompletedId: null, jobs: [] };
   }
@@ -38,11 +39,12 @@ function readIndex() {
 
 function writeIndex(idx) {
   ensureDir();
-  fs.writeFileSync(INDEX_PATH, JSON.stringify(idx, null, 2));
+  fs.writeFileSync(INDEX_PATH(), JSON.stringify(idx, null, 2));
 }
 
 function jobPath(id) {
-  return path.join(DATA_DIR, `${id}.json`);
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(String(id))) throw new Error('Invalid job id');
+  return path.join(DATA_DIR(), `${id}.json`);
 }
 
 function readJob(id) {

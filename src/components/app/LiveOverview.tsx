@@ -7,6 +7,9 @@ import { getCompanyStatus } from '../../legacy/services/companyService';
 import { getInstagramStatus } from '../../legacy/services/instagramService';
 import { getWhatsAppStatus } from '../../legacy/services/whatsappService';
 import { getFacebookStatus } from '../../legacy/services/facebookService';
+import { listAutoReplyItems } from '../../legacy/services/autoReplyService';
+import { getPostAnalytics, PLATFORM_LABEL } from '../../legacy/services/plannerService';
+import type { ExtraEvent } from './overviewStats';
 
 interface LiveOverviewProps {
   workspaceName?: string;
@@ -92,8 +95,23 @@ export default function LiveOverview({
   const [legacyLeads, setLegacyLeads] = useState<LegacyLead[]>([]);
   const [channelBits, setChannelBits] = useState({ ig: false, wa: false, fb: false, docs: 0, hasVoice: false });
 
+  const [extraEvents, setExtraEvents] = useState<ExtraEvent[]>([]);
+
   const refresh = useCallback(() => {
-    void fetchLeads().then((list) => setLegacyLeads(list.length ? list : getLeads()));
+    void fetchLeads().then((list) => setLegacyLeads(list));
+    // Replies we sent and posts we published are part of what happened too.
+    void Promise.all([listAutoReplyItems('sent').catch(() => []), getPostAnalytics().catch(() => null)]).then(([replies, posts]) => {
+      const events: ExtraEvent[] = [];
+      for (const r of replies) {
+        const ts = new Date(r.sentAt || r.receivedAt).getTime();
+        const place = r.platform === 'x' ? 'X' : r.platform.charAt(0).toUpperCase() + r.platform.slice(1);
+        events.push({ id: `reply-${r.id}`, ts, description: `Replied on ${place}${r.kind === 'dm' ? ' (message)' : ''} · ${r.author || 'someone'}`, icon: '💬', iconColor: 'text-sky-400', category: 'autoreply', subCategory: 'overview' });
+      }
+      for (const p of posts?.posts || []) {
+        events.push({ id: `post-${p.id}`, ts: new Date(p.publishedAt).getTime(), description: `Published on ${PLATFORM_LABEL[p.platform] || p.platform} · ${p.text.slice(0, 60)}`, icon: '🚀', iconColor: 'text-purple-400', category: 'content', subCategory: 'schedule' });
+      }
+      setExtraEvents(events);
+    });
   }, []);
 
   useEffect(() => {
@@ -234,6 +252,8 @@ export default function LiveOverview({
       isFirstRun={legacyLeads.length === 0 && !channelBits.ig && !channelBits.wa}
       workspaceName={workspaceName}
       liveInsights={liveInsights}
+      rawLeads={legacyLeads}
+      extraEvents={extraEvents}
     />
   );
 }

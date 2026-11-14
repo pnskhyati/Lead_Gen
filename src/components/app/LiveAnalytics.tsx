@@ -7,8 +7,9 @@ import { getInstagramStatus } from '../../legacy/services/instagramService';
 import { getFacebookStatus } from '../../legacy/services/facebookService';
 import { getWhatsAppStatus } from '../../legacy/services/whatsappService';
 import { getAgentAudit, getCompanyStatus } from '../../legacy/services/companyService';
+import PostPerformance from './PostPerformance';
 
-export type AnalyticsTab = 'overview' | 'leads' | 'channels' | 'activity';
+export type AnalyticsTab = 'overview' | 'leads' | 'channels' | 'posts' | 'activity';
 
 interface LiveAnalyticsProps {
   activeSubCategory: SubCategory;
@@ -43,6 +44,8 @@ export default function LiveAnalytics({ activeSubCategory, onNavigateSub, onOpen
       ? 'leads'
       : activeSubCategory === 'channels' || activeSubCategory === 'channel-performance'
         ? 'channels'
+        : activeSubCategory === 'post-performance'
+        ? 'posts'
         : activeSubCategory === 'activity-log' || activeSubCategory === 'stats'
           ? 'activity'
           : 'overview';
@@ -223,6 +226,7 @@ export default function LiveAnalytics({ activeSubCategory, onNavigateSub, onOpen
               ['overview', 'overview', 'Overview'],
               ['leads', 'leads', 'Leads'],
               ['channels', 'channels', 'Channels'],
+              ['posts', 'post-performance', 'Posts'],
               ['activity', 'activity-log', 'Activity'],
             ] as const
           ).map(([tab, sub, label]) => (
@@ -452,6 +456,8 @@ export default function LiveAnalytics({ activeSubCategory, onNavigateSub, onOpen
           </div>
         </div>
       )}
+
+      {currentTab === 'posts' && <PostPerformance />}
 
       {currentTab === 'activity' && (
         <div className="space-y-4 text-xs">

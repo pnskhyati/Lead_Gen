@@ -11,6 +11,8 @@ import {
   Sparkles
 } from 'lucide-react';
 import { NavCategory, SubCategory } from '../../types';
+import { fetchLeads } from '../../legacy/services/leadStore';
+import type { Lead as LegacyLead } from '../../legacy/types';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -26,6 +28,11 @@ export default function CommandPalette({
   onTriggerQuickAction
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
+  const [recentLeads, setRecentLeads] = useState<LegacyLead[]>([]);
+  useEffect(() => {
+    if (!isOpen) return;
+    void fetchLeads().then((l) => setRecentLeads(l.slice(0, 3))).catch(() => setRecentLeads([]));
+  }, [isOpen]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -107,45 +114,30 @@ export default function CommandPalette({
             </div>
           </div>
 
-          {/* LEADS */}
-          <div className="pt-3 space-y-1.5">
-            <span className="text-[10px] uppercase tracking-wider text-[#A9BFA5]/60 font-semibold block">
-              LEADS
-            </span>
-            <div 
-              onClick={() => {
-                onClose();
-                onSelectNav('leads', 'all-leads');
-              }}
-              className="p-2 hover:bg-[#0D2D2A]/40 rounded cursor-pointer flex items-center justify-between"
-            >
-              <div>
-                <span className="font-semibold text-white">Aster Labs</span>
-                <span className="text-[#A9BFA5] ml-2">· Qualified · Hot</span>
-              </div>
-              <span className="text-[#A9BFA5]/60 text-[10px]">92 score</span>
+          {/* LEADS: the most recent real ones */}
+          {recentLeads.length > 0 && (
+            <div className="pt-3 space-y-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-[#A9BFA5]/60 font-semibold block">
+                RECENT LEADS
+              </span>
+              {recentLeads.map((l) => (
+                <div
+                  key={l.id}
+                  onClick={() => {
+                    onClose();
+                    onSelectNav('leads', 'all-leads');
+                  }}
+                  className="p-2 hover:bg-[#0D2D2A]/40 rounded cursor-pointer flex items-center justify-between"
+                >
+                  <div>
+                    <span className="font-semibold text-white">{l.author?.trim() || l.phone || 'Unknown'}</span>
+                    <span className="text-[#A9BFA5] ml-2">· {l.platform} · {l.status.replace('_', ' ')}</span>
+                  </div>
+                  <span className="text-[#A9BFA5]/60 text-[10px]">{l.score} score</span>
+                </div>
+              ))}
             </div>
-          </div>
-
-          {/* CONVERSATIONS */}
-          <div className="pt-3 space-y-1.5">
-            <span className="text-[10px] uppercase tracking-wider text-[#A9BFA5]/60 font-semibold block">
-              CONVERSATIONS
-            </span>
-            <div 
-              onClick={() => {
-                onClose();
-                onSelectNav('inbox', 'inbox');
-              }}
-              className="p-2 hover:bg-[#0D2D2A]/40 rounded cursor-pointer flex items-center justify-between"
-            >
-              <div>
-                <span className="font-semibold text-white">Rahul Sharma</span>
-                <span className="text-[#A9BFA5] ml-2">· WhatsApp · 4 min ago</span>
-              </div>
-              <span className="text-amber-300 text-[10px]">Needs you</span>
-            </div>
-          </div>
+          )}
 
           {/* PAGES */}
           <div className="pt-3 space-y-1.5">
